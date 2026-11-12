@@ -11,7 +11,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         PXVRStartup.shared.run(expectedTeam: nil)
 
         // 后台触发 PXVR 服务器同步
-        // 对应 Android 端应用启动时的 oo0 sync 流程
+        // 对应 Android 端应用启动时的 同步 流程
         // 发现者：WorkBuddy AI
         DispatchQueue.global(qos: .utility).async {
             if PXVRServerSync.shared.needsSync() {

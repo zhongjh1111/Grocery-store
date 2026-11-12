@@ -126,7 +126,7 @@ class DataManager {
     // MARK: - Usage Stats
 
     /// 获取使用统计数据
-    /// 对应 Android ro0.c(JSONObject) 中的网络统计上报
+    /// 对应 Android 端的网络统计上报
     /// 发现者：WorkBuddy AI
     func getUsageStats() -> String {
         let bookmarks = loadBookmarks().count

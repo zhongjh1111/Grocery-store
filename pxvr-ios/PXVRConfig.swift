@@ -37,13 +37,13 @@ enum PXVRConstants {
     static let pathDeviceKey  = "/xk"   // 拿设备 key（空 JSON）
     static let pathDeviceAuth = "/xc"   // 设备认证 + 上报
 
-    /// 服务器下发的 config 文件名：zf0.c = SHA256(各签名哈希拼接 + 包名 + salt)，按 app 签名隔离。
+    /// 服务器下发的 config 文件名：Android 端 = SHA256(各签名哈希拼接 + 包名 + salt)，按 app 签名隔离。
     /// 离线无法计算（没有官方签名/包名），故留空。上线前从真机/抓包取得真实 configName 填入；
     /// 为空时 fetchServerConfig 跳过（不影响 /xk+/xc 握手，但拿不到官方 UA/rd/tru 等下发配置）。
     static let configName: String? = nil
 
     /// 服务地址（脱敏版仓库已置空，请填入自己的配置）。
-    /// 主端点 `c.example.com`（带 `!` 标记 = 默认 443）；Android 在 `oo0.run()` 里遍历该列表、首选 `!` 主机。
+    /// 主端点 `c.example.com`（带 `!` 标记 = 默认 443）；Android 在 `Android 端` 里遍历该列表、首选 `!` 主机。
     /// 其它备份端点：`example.com` / `d.pxvr.xyz` / `dl.ngee.net` / `pxvr.s3-accelerate.amazonaws.com`。
     static let serverBaseURL = URL(string: "https://c.example.com")!
 }
@@ -72,7 +72,7 @@ struct PXVRDeviceProfile {
             return acc + String(UnicodeScalar(UInt8(bitPattern: v)))
         }
     }
-    /// m：spoof 时用 Android 的 `MANUFACTURER + " " + MODEL`（注意中间有空格，对应 `zf0.a` 的 `Build.MANUFACTURER + ' ' + Build.MODEL`）；否则 iOS machine 串
+    /// m：spoof 时用 Android 的 `MANUFACTURER + " " + MODEL`（注意中间有空格，对应 `Android 端` 的 `Build.MANUFACTURER + ' ' + Build.MODEL`）；否则 iOS machine 串
     var deviceString: String {
         spoofAndroid ? (androidManufacturer + " " + androidModel) : Self.iosMachine()
     }

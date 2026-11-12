@@ -7,8 +7,8 @@
 //
 //  关键格式（来自 APK 逆向，务必保持）：
 //   · 请求：POST，Content-Type = application/x-www-form-urlencoded，包体 = "q=" + 加密hex
-//           （Android 用 gu 把加密串写成名为 "q" 的表单项；见 ro0.a0 / gu）。
-//   · 响应：被包裹在  s/<加密hex>\  中（oo0.a 提取 "s/" 与首个 "\" 之间的 hex 再解密）。
+// （Android 用 gu 把加密串写成名为 "q" 的表单项；见 Android 端 / gu）。
+// · 响应：被包裹在 s/<加密hex>\ 中（Android 端 提取 "s/" 与首个 "\" 之间的 hex 再解密）。
 //   · /xk 发空 {} -> 服务器下发设备 key（响应字段 "id"）。
 //   · /xc 上报 k/r/t + c/v/s/m/d/wv；krv=200 -> 清库 + exit(0)（服务器吊销，保持原语义）。
 
@@ -52,7 +52,7 @@ final class PXVRNetwork {
                 PXVRLogger.warning("\(path) 响应非 UTF-8 文本")
                 return nil
             }
-            // 剥离 s/<hex>\ 信封（oo0.a），取不到则原样当 hex（防御其它端点）。
+            // 剥离 s/<hex>\ 信封（Android 端），取不到则原样当 hex（防御其它端点）。
             let hex = Self.extractEnvelopeHex(raw) ?? raw
             guard let resp = PXVRProtocol.shared.decodeJSON(hex) else {
                 PXVRLogger.warning("\(path) 响应解密失败（已尝试剥离 s/..\\ 信封）")
@@ -65,7 +65,7 @@ final class PXVRNetwork {
         }
     }
 
-    /// 对应 oo0.a()：从 `s/<hex>\` 信封中提取加密 hex。找不到 `s/` 则返回 nil（交给调用方原样处理）。
+    /// 对应 Android 端：从 `s/<hex>\` 信封中提取加密 hex。找不到 `s/` 则返回 nil（交给调用方原样处理）。
     private static func extractEnvelopeHex(_ raw: String) -> String? {
         guard let sRange = raw.range(of: "s/") else { return nil }
         let after = raw[sRange.upperBound...]
@@ -75,7 +75,7 @@ final class PXVRNetwork {
 
     // MARK: - /xk 设备 key
 
-    /// 对应 oo0.b() 的 /xk：发空 {} 拿服务器下发的设备 key（响应字段 "id"，不绑硬件）。
+    /// 对应 Android 端的 /xk：发空 {} 拿服务器下发的设备 key（响应字段 "id"，不绑硬件）。
     func performXK(baseURL: URL) async -> String? {
         let resp = await callAPI(baseURL: baseURL, path: PXVRConstants.pathDeviceKey, payload: [:])
         if let id = resp?["id"] as? String, !id.isEmpty {
@@ -88,9 +88,9 @@ final class PXVRNetwork {
 
     // MARK: - /xc 设备认证 + 上报
 
-    /// 对应 oo0.b() 的 /xc 上报。完整字段（fresh 客户端、无进行中下载时）：
-    ///   k = /xk 下发的设备 key（响应字段 "id"），r = rd||"0"，t = ro0.t()（首次运行未建立信任时为 0），
-    ///   c/v/s/m/d/wv 由 zf0.a() 填充。f/sr 字段仅在存在进行中下载时由 ro0.b/c 添加，此处省略。
+    /// 对应 Android 端的 /xc 上报。完整字段（fresh 客户端、无进行中下载时）：
+    /// k = /xk 下发的设备 key（响应字段 "id"），r = rd||"0"，t = Android 端（首次运行未建立信任时为 0），
+    /// c/v/s/m/d/wv 由 Android 端 填充。f/sr 字段仅在存在进行中下载时由 Android 端/c 添加，此处省略。
     /// krv=200 -> 清库 + exit(0)（服务器吊销，保持原语义）。
     func performXC(baseURL: URL) async {
         guard let key = self.deviceKey, !key.isEmpty else {
@@ -101,11 +101,11 @@ final class PXVRNetwork {
         let payload: [String: Any] = [
             "k": key,                       // 设备 key（/xk 下发的 "id"），服务端依此关联会话
             "r": "0",                       // rd 本地配置，默认 "0"
-            "t": 0,                         // ro0.t()：首次运行（未建立信任）为 0
+            "t": 0,                         // Android 端：首次运行（未建立信任）为 0
             "c": "wd",
             "v": p.appVersion,              // 对应 Android v 字段（原始 APK 上报 20260606）
             "s": p.sdkInt,                  // 对应 Build.VERSION.SDK_INT
-            "m": p.deviceString,            // MANUFACTURER + " " + MODEL（注意空格，与 zf0.a 一致）
+            "m": p.deviceString,            // MANUFACTURER + " " + MODEL（注意空格，与 Android 端一致）
             "d": PXVRStartup.shared.deviceFlag, // 对应 dm 标记；干净 iOS 设备为 0，与未 root 的 Android 一致
             "wv": p.webViewVersion          // iOS 上无 net.ngee.wv 伴生 APK，固定 ""
         ]

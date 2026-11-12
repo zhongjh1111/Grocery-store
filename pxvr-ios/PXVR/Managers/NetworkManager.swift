@@ -1,7 +1,7 @@
 import Foundation
 import Security   // SecPKCS12Import / SecIdentity / kSecImportExportPassphrase
 
-/// 网络请求管理器 — 对应 Android 端 ro0.java 的网络层
+/// 网络请求管理器 — 对应 Android 端的网络层
 /// 负责调用 pixiv.net touch/ajax API（明文）和 PXVR 服务器 API（加密）
 ///
 /// 发现者：WorkBuddy AI
@@ -21,7 +21,7 @@ enum PXVREndpoint: String {
 
 /// PXVR 服务器主机（解码后的）
 /// 发现者：WorkBuddy AI
-/// 原始编码值在 ro0.java:136 — 使用 Vigenère 密码加密，密钥 "PLACEHOLDER_SALT"
+/// 原始编码值在 Android 端第 136 行 — 使用 Vigenère 密码加密，密钥 "PLACEHOLDER_SALT"
 struct PXVRServer {
     /// 主服务器（原始: !e.b00l.sx，带 ! 前缀表示需要 DNS 解析）
     static let primary = "c.example.com"
@@ -44,7 +44,7 @@ struct PXVRServer {
     static let p12Alias = "exampleWEB"
 
     /// Vigenère 密码解码
-    /// 对应 Android ro0.n(String str) @ line 1098
+    /// 对应 Android 端
     static func decodeHostname(_ encoded: String) -> String {
         let key = p12Password
         let keyChars = Array(key)
@@ -95,7 +95,7 @@ class NetworkManager: NSObject {
     // MARK: - PKCS#12 客户端证书加载
 
     /// 加载 PKCS#12 客户端证书
-    /// 对应 Android ro0.I() 方法 @ line 282
+    /// 对应 Android 端的同名方法
     /// 证书文件 pxvr.p12，密码 "PLACEHOLDER_SALT"，别名 "exampleWEB"
     private func loadClientCertificate() {
         // 查找 Bundle 中的 pxvr.p12
@@ -202,7 +202,7 @@ class NetworkManager: NSObject {
     // MARK: - PXVR 服务器 API（加密）
 
     /// 向 PXVR 服务器发送加密请求
-    /// 对应 Android oo0.b() 方法 + ro0.b0() + ro0.d()
+    /// 对应 Android 端的同名方法
     ///
     /// 流程：
     /// 1. JSON → 压缩(raw deflate) → 追加0x01 → Native.call() → hex 字符串
@@ -241,7 +241,7 @@ class NetworkManager: NSObject {
             serverIndex += 1
 
             // 构建 URL：https://{server}/{endpoint}.json?q={encryptedHex}
-            // 对应 Android: ro0.b0(str2 + "/xc", str3, new gu(arrayList, arrayList2))
+            // 对应 Android 端的请求组装
             // gu 中包含 q=encryptedHex 查询参数
             var components = URLComponents()
             components.scheme = "https"
@@ -285,7 +285,7 @@ class NetworkManager: NSObject {
                 }
 
                 // 3. 解析响应中的加密数据
-                // 对应 Android oo0.a(String str): 提取 s/ 和 \ 之间的字符串
+                // 对应 Android 端: 提取 s/ 和 \ 之间的字符串
                 guard let extractedHex = self.extractEncryptedData(from: responseString) else {
                     print("[NetworkManager] PXVR 响应格式无效 (\(server)): \(responseString.prefix(200))")
                     tryNextServer()
@@ -293,7 +293,7 @@ class NetworkManager: NSObject {
                 }
 
                 // 4. 解密响应
-                // 对应 Android oo0.a(): Native.call2(substring) → Inflater → JSON
+                // 对应 Android 端: Native.call2(substring) → Inflater → JSON
                 guard let json = PXVRProtocol.shared.decodeJSON(extractedHex) else {
                     print("[NetworkManager] PXVR 解密失败 (\(server))")
                     tryNextServer()
@@ -317,7 +317,7 @@ class NetworkManager: NSObject {
     }
 
     /// 从 PXVR 服务器响应中提取加密数据
-    /// 对应 Android oo0.a(String str): 查找 "s/" 和 "\" 之间的字符串
+    /// 对应 Android 端: 查找 "s/" 和 "\" 之间的字符串
     ///
     /// 响应格式: ...s/{hex_encoded_encrypted_data}\...
     private func extractEncryptedData(from response: String) -> String? {
@@ -335,8 +335,8 @@ class NetworkManager: NSObject {
     // MARK: - PXVR 密钥交换
 
     /// 执行密钥交换（初始注册）
-    /// 对应 Android oo0.b() 中 str5 == null 时的流程:
-    ///   ro0.d("{}") → b0(url + "/xk", ...) → a(response) → 获取 id
+    /// 对应 Android 端中 str5 == null 时的流程:
+    /// Android 端 → b0(url + "/xk", ...) → a(response) → 获取 id
     func performKeyExchange(completion: @escaping (Result<String, Error>) -> Void) {
         performPXVRRequest(endpoint: .keyExchange, jsonData: [:]) { result in
             switch result {
@@ -446,7 +446,7 @@ class NetworkManager: NSObject {
 extension NetworkManager: URLSessionDelegate {
 
     /// TLS 客户端证书认证
-    /// 对应 Android ro0.I() 方法 — 加载 PKCS#12 证书用于双向 TLS
+    /// 对应 Android 端的同名方法 — 加载 PKCS#12 证书用于双向 TLS
     func urlSession(
         _ session: URLSession,
         didReceive challenge: URLAuthenticationChallenge,
