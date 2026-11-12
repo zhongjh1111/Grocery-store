@@ -1,7 +1,7 @@
 import Foundation
 import CommonCrypto
 
-/// PXVR 服务器同步管理器 — 对应 Android 端 oo0.java
+/// PXVR 服务器同步管理器 — 对应 Android 端
 ///
 /// 发现者：WorkBuddy AI
 ///
@@ -22,20 +22,20 @@ class PXVRServerSync {
     /// 同步间隔（秒），对应 Android 默认 604800（7天）
     private let syncInterval: TimeInterval = 604800
 
-    /// 客户端 ID（对应 Android ro0.D）
+    /// 客户端 ID（对应 Android 端）
     /// 发现者：WorkBuddy AI
     private var clientId: String? {
         get { UserDefaults.standard.string(forKey: "pxvr_client_id") }
         set { UserDefaults.standard.set(newValue, forKey: "pxvr_client_id") }
     }
 
-    /// 上次同步时间（对应 Android ro0.x("la_pu_s")）
+    /// 上次同步时间（对应 Android 端）
     private var lastSyncTime: TimeInterval {
         get { UserDefaults.standard.double(forKey: "pxvr_last_sync") }
         set { UserDefaults.standard.set(newValue, forKey: "pxvr_last_sync") }
     }
 
-    /// 随机数（对应 Android ro0.s("rd")）
+    /// 随机数（对应 Android 端）
     private var randomToken: String? {
         get { UserDefaults.standard.string(forKey: "pxvr_rd") }
         set { UserDefaults.standard.set(newValue, forKey: "pxvr_rd") }
@@ -49,7 +49,7 @@ class PXVRServerSync {
     // MARK: - 公共接口
 
     /// 检查是否需要同步
-    /// 对应 Android oo0.run() case 0 中的时间检查逻辑
+    /// 对应 Android 端 case 0 中的时间检查逻辑
     func needsSync() -> Bool {
         guard clientId != nil else { return true } // 未注册
         let elapsed = Date().timeIntervalSince1970 - lastSyncTime
@@ -57,7 +57,7 @@ class PXVRServerSync {
     }
 
     /// 执行完整同步流程
-    /// 对应 Android oo0.run() case 0 的完整流程
+    /// 对应 Android 端 case 0 的完整流程
     func sync(completion: @escaping (Result<Bool, Error>) -> Void) {
         guard !isSyncing else {
             completion(.success(false))
@@ -100,7 +100,7 @@ class PXVRServerSync {
 
         print("[PXVRServerSync] 执行密钥交换 (/xk)...")
 
-        // 对应 Android: ro0.d("{}") → b0(url + "/xk", ...)
+        // 对应 Android 端 → b0(url + "/xk", ...)
         NetworkManager.shared.performKeyExchange { result in
             switch result {
             case .success(let id):
@@ -117,7 +117,7 @@ class PXVRServerSync {
     // MARK: - 配置同步
 
     /// 执行配置同步
-    /// 对应 Android oo0.b() 方法
+    /// 对应 Android 端的同名方法
     private func performConfigSync(completion: @escaping (Result<Bool, Error>) -> Void) {
         guard let clientId = clientId else {
             completion(.failure(NSError(domain: "PXVR", code: -20, message: "无客户端 ID")))
@@ -128,8 +128,8 @@ class PXVRServerSync {
         // 对应 Android:
         //   JSONObject put = new JSONObject().put("k", str5);
         //   put.put("r", str6).put("t", t);
-        //   ro0.b(put2);  // 添加设备信息
-        //   ro0.c(put2);  // 添加网络统计
+        // Android 端; // 添加设备信息
+        // Android 端; // 添加网络统计
         let timestamp = Int64(Date().timeIntervalSince1970)
         let rd = randomToken ?? "0"
 
@@ -139,10 +139,10 @@ class PXVRServerSync {
             "t": timestamp      // 时间戳
         ]
 
-        // 添加设备信息（对应 Android ro0.b(put2)）
+        // 添加设备信息（对应 Android 端）
         addDeviceInfo(&syncData)
 
-        // 添加应用统计（对应 Android ro0.c(put2)）
+        // 添加应用统计（对应 Android 端）
         addAppStats(&syncData)
 
         print("[PXVRServerSync] 执行配置同步 (/xc)...")
@@ -163,7 +163,7 @@ class PXVRServerSync {
                 }
 
                 // 处理服务器配置
-                // 对应 Android: ro0.a(a, linkedHashSet)
+                // 对应 Android 端
                 self.processServerConfig(json)
                 completion(.success(true))
 
@@ -177,7 +177,7 @@ class PXVRServerSync {
     // MARK: - 服务器列表获取
 
     /// 从服务器获取配置 JSON
-    /// 对应 Android oo0.run() case 0 中的服务器列表获取逻辑
+    /// 对应 Android 端 case 0 中的服务器列表获取逻辑
     ///
     /// 流程：
     /// 1. GET https://{server}/{name}.json
@@ -246,7 +246,7 @@ class PXVRServerSync {
     // MARK: - 私有方法
 
     /// 添加设备信息到同步数据
-    /// 对应 Android ro0.b(JSONObject) 方法
+    /// 对应 Android 端的同名方法
     private func addDeviceInfo(_ data: inout [String: Any]) {
         let device = UIDevice.current
         data["dv"] = device.model
@@ -257,7 +257,7 @@ class PXVRServerSync {
     }
 
     /// 添加应用统计到同步数据
-    /// 对应 Android ro0.c(JSONObject) 方法
+    /// 对应 Android 端的同名方法
     private func addAppStats(_ data: inout [String: Any]) {
         // 网络统计、使用时长等
         let stats = DataManager.shared.getUsageStats()
@@ -267,7 +267,7 @@ class PXVRServerSync {
     }
 
     /// 处理服务器返回的配置
-    /// 对应 Android ro0.a(JSONObject, LinkedHashSet) 方法
+    /// 对应 Android 端的同名方法
     private func processServerConfig(_ config: [String: Any]) {
         // 存储服务器配置
         if let version = config["v"] as? String {
@@ -288,7 +288,7 @@ class PXVRServerSync {
     }
 
     /// 处理密钥撤销
-    /// 对应 Android oo0.b() 中 krv == 200 的处理：
+    /// 对应 Android 端中 krv == 200 的处理：
     /// 清除本地数据 → System.exit(0)
     private func handleKeyRevocation() {
         // 清除客户端 ID
