@@ -1,0 +1,95 @@
+name: PXVR
+options:
+  bundleIdPrefix: net.ngee
+  deploymentTarget:
+    iOS: "15.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    TARGETED_DEVICE_FAMILY: "1,2"
+    INFOPLIST_FILE: PXVR/App/Info.plist
+    PRODUCT_BUNDLE_IDENTIFIER: net.ngee.pixiver
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_OBJC_BRIDGING_HEADER: PXVR-iOS-Bridging-Header.h
+    OTHER_LDFLAGS: "$(inherited) -lz"
+targets:
+  PXVR:
+    type: application
+    platform: iOS
+    sources:
+      - path: PXVR
+        excludes:
+          - "App/Info.plist"   # 由 info: 生成，若同时进 Resources 会触发 Multiple commands produce
+      - path: PXVRApp.swift
+      - path: PXVRConfig.swift
+      - path: PXVRIntegrity.swift
+      - path: PXVRNetwork.swift
+      - path: PXVRStartup.swift
+      - path: PXVRTransport.swift
+      - path: PXVRWebView.swift
+    info:
+      path: PXVR/App/Info.plist
+      properties:
+        CFBundleDisplayName: PXVR
+        CFBundleShortVersionString: "1.0"
+        CFBundleVersion: "1"
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+          UISceneConfigurations:
+            UIWindowSceneSessionRoleApplication:
+              - UISceneConfigurationName: Default
+                UISceneDelegateClassName: "$(PRODUCT_MODULE_NAME).SceneDelegate"
+        UILaunchScreen:
+          UIColorName: ""
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+          NSAllowsArbitraryLoadsInWebContent: true
+        NSPhotoLibraryAddUsageDescription: "保存图片到相册"
+        NSPhotoLibraryUsageDescription: "访问相册以保存图片"
+        CFBundleURLTypes:
+          - CFBundleURLName: net.ngee.pixiver
+            CFBundleURLSchemes:
+              - pxvr
+
+  # ---- 单元测试（加密层验收）----
+  PXVRTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+        excludes:
+          - "Info.plist"     # 仅作 INFOPLIST_FILE，不进 Resources
+    settings:
+      base:
+        INFOPLIST_FILE: Tests/Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: net.ngee.pixiver.tests
+        GENERATE_INFOPLIST_FILE: NO
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/PXVR.app/PXVR"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+    dependencies:
+      - target: PXVR
+
+schemes:
+  PXVR:
+    build:
+      targets:
+        PXVR: all
+        PXVRTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      gatherCoverageData: false
+      targets:
+        - PXVRTests

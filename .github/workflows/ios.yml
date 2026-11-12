@@ -1,0 +1,56 @@
+name: iOS Build & Test
+
+on:
+  push:
+    paths:
+      - 'pxvr-ios/**'
+      - '.github/workflows/ios.yml'
+  pull_request:
+    paths:
+      - 'pxvr-ios/**'
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: pxvr-ios
+
+jobs:
+  build-and-test:
+    runs-on: macos-14
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 显示 Xcode 版本
+        run: xcodebuild -version
+
+      - name: 安装 XcodeGen
+        run: brew install xcodegen
+
+      - name: 生成 Xcode 工程
+        run: xcodegen generate
+
+      - name: 列出可用模拟器
+        run: xcrun simctl list devices available | head -40
+
+      - name: 编译 + 跑测试
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project PXVR.xcodeproj \
+            -scheme PXVR \
+            -destination 'platform=iOS Simulator,name=iPhone 15,OS=latest' \
+            -resultBundlePath TestResults.xcresult \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            ONLY_ACTIVE_ARCH=YES
+
+      - name: 失败时上传结果包
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TestResults
+          path: pxvr-ios/TestResults.xcresult
+          if-no-files-found: ignore
