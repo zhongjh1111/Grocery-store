@@ -55,11 +55,12 @@ final class URLSessionTransport: NSObject, URLSessionDelegate, PXVRTransport {
         guard status == errSecSuccess,
               let arr = items as? [[String: Any]],
               let first = arr.first,
-              let ident = first[kSecImportItemIdentity as String] as? SecIdentity else {
+              let raw = first[kSecImportItemIdentity as String] else {
             PXVRLogger.warning("SecPKCS12Import 失败: \(status)")
             return nil
         }
-        return ident
+        // SecIdentity 是 CoreFoundation 类型，不能用 as? 做条件转换（编译器判定恒成功）
+        return (raw as! SecIdentity)
     }
 
     func urlSession(_ session: URLSession,

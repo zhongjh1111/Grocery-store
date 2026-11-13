@@ -86,7 +86,6 @@ class DownloadManager {
             }
         }
 
-        downloadItem.id = downloadItem.id // 保持 ID
         activeTasks[downloadItem.id] = task
         task.resume()
     }

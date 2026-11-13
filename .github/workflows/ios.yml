@@ -50,15 +50,22 @@ jobs:
           set -e
 
           if [ $STATUS -ne 0 ]; then
-            echo "===== 编译/测试失败，错误摘录如下 ====="
-            # 把错误升级成 annotation，便于在 PR 页面直接看到，也便于外部读取
-            grep -nE "error:|Testing failed|BUILD FAILED|Undefined symbol|Cannot find|no such module" build.log \
-              | head -25 | while IFS= read -r line; do
-                echo "::error title=xcodebuild::$line"
+            echo "===== 编译/测试失败 ====="
+            # 按文件聚合错误，每文件一条 annotation（annotation 每步上限 10 条）
+            grep -E "error:" build.log | head -200 > errors.txt || true
+            if [ -s errors.txt ]; then
+              cut -d: -f1 errors.txt | sort -u | head -10 | while IFS= read -r f; do
+                msgs=$(grep -F "$f:" errors.txt | head -3 \
+                  | sed -E 's/^.*error: //' | tr '\n' ';' | cut -c1-600)
+                echo "::error title=$(basename "$f")::$msgs"
               done
-            echo "===================================="
-            echo "----- 日志尾部 120 行 -----"
-            tail -120 build.log
+              echo "----- 全部错误 ($(wc -l < errors.txt)) -----"
+              cat errors.txt
+            else
+              echo "::error title=xcodebuild::未匹配到 error: 行，见日志尾部"
+            fi
+            echo "----- 日志尾部 80 行 -----"
+            tail -80 build.log
           else
             echo "构建与测试通过"
           fi

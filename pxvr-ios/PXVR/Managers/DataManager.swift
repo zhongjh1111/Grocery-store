@@ -17,7 +17,7 @@ class DataManager {
     // MARK: - Bookmarks
 
     func loadBookmarks() -> [Bookmark] {
-        return load(Bookmark.self, filename: "bookmarks.json") ?? []
+        return load([Bookmark].self, filename: "bookmarks.json") ?? []
     }
 
     func saveBookmarks(_ bookmarks: [Bookmark]) {
@@ -45,7 +45,7 @@ class DataManager {
     // MARK: - History
 
     func loadHistory() -> [HistoryItem] {
-        return load(HistoryItem.self, filename: "history.json") ?? []
+        return load([HistoryItem].self, filename: "history.json") ?? []
     }
 
     func saveHistory(_ history: [HistoryItem]) {
@@ -71,7 +71,7 @@ class DataManager {
     // MARK: - Downloads
 
     func loadDownloads() -> [DownloadItem] {
-        return load(DownloadItem.self, filename: "downloads.json") ?? []
+        return load([DownloadItem].self, filename: "downloads.json") ?? []
     }
 
     func saveDownloads(_ downloads: [DownloadItem]) {
