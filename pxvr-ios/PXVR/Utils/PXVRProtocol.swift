@@ -36,6 +36,24 @@ enum PXVRProtocolError: Error, CustomStringConvertible {
     }
 }
 
+/// 一对 RSA 密钥（PKCS#1 DER 的 base64）。
+/// 脱敏版仓库不内置真实密钥；测试时可注入临时生成的密钥对，
+/// 这样能在不携带任何机密的前提下验证整条编解码链路。
+struct PXVRKeys {
+    var encryptPublicB64: String
+    var decryptPrivateB64: String
+
+    var isUsable: Bool {
+        !encryptPublicB64.isEmpty && !decryptPrivateB64.isEmpty
+    }
+
+    /// 仓库内置（脱敏版为空串）
+    static let shipped = PXVRKeys(
+        encryptPublicB64: "",
+        decryptPrivateB64: ""
+    )
+}
+
 final class PXVRProtocol {
 
     // MARK: - 常量（本 APK 版本固定）
@@ -50,13 +68,11 @@ final class PXVRProtocol {
         0x6a, 0xf3, 0x28, 0x10                            // 时间戳占位
     ]
 
-    /// 请求方向 RSA 公钥（PKCS#1 RSAPublicKey DER，2048 位，e = 65537）
-    private static let encryptPublicKeyB64 = ""   // 脱敏：公开仓库不携带密钥，需要时自行填入
-
-    /// 响应方向 RSA 私钥（PKCS#1 RSAPrivateKey DER，含 CRT 参数）
-    private static let decryptPrivateKeyB64 = ""   // 脱敏：同上
 
     // MARK: - DRBG 状态
+
+    /// 本次会话使用的密钥对
+    let keys: PXVRKeys
 
     private var aesKey: [UInt8]      // 32 字节
     private var counter: [UInt8]    // 16 字节，大端
@@ -65,7 +81,8 @@ final class PXVRProtocol {
     // MARK: - 初始化
 
     /// - Parameter seed: 48 字节种子。传 nil 时用 SecRandomCopyBytes 现取。
-    init(seed: Data? = nil) {
+    init(seed: Data? = nil, keys: PXVRKeys = .shipped) {
+        self.keys = keys
         let s: [UInt8]
         if let seed = seed, seed.count == 48 {
             s = [UInt8](seed)
@@ -196,7 +213,7 @@ final class PXVRProtocol {
         eb.append(0x00)
         eb += dBlock                                          // 共 256 字节
 
-        guard let pubKey = Self.encryptPublicKey(),
+        guard let pubKey = Self.publicKey(keys.encryptPublicB64),
               let header = try? Self.rsaRawEncrypt(eb, key: pubKey) else {
             PXVRLogger.warning("[proto] RSA 加密失败")
             return ""
@@ -206,14 +223,14 @@ final class PXVRProtocol {
 
     // MARK: - 解码（响应）
 
-    static func decode(_ resp: Data) throws -> Data {
+    static func decode(_ resp: Data, keys: PXVRKeys = .shipped) throws -> Data {
         let raw = [UInt8](resp)
         guard raw.count > 256 else { throw PXVRProtocolError.badResponseHeader }
 
         let header = Array(raw[0..<256])
         let body = Array(raw[256..<raw.count])
 
-        guard let privKey = decryptPrivateKey() else {
+        guard let privKey = privateKey(keys.decryptPrivateB64) else {
             throw PXVRProtocolError.rsaKeyImportFailed("解密私钥不可用")
         }
         let block = try rsaRawDecrypt(header, key: privKey)
@@ -284,22 +301,30 @@ final class PXVRProtocol {
 
     // MARK: - RSA（裸运算）
 
-    private static var cachedEncryptKey: SecKey?
-    private static var cachedDecryptKey: SecKey?
+    private static let keyCacheLock = NSLock()
+    private static var keyCache: [String: SecKey] = [:]
 
-    private static func encryptPublicKey() -> SecKey? {
-        if let k = cachedEncryptKey { return k }
-        let k = makeKey(base64: encryptPublicKeyB64, isPrivate: false)
-        cachedEncryptKey = k
-        return k
+    /// 公钥/私钥按 base64 缓存，避免每次请求都重新导入 DER。
+    private static func cachedKey(_ b64: String, isPrivate: Bool) -> SecKey? {
+        guard !b64.isEmpty else { return nil }
+        let cacheKey = (isPrivate ? "priv:" : "pub:") + b64
+        keyCacheLock.lock()
+        if let hit = keyCache[cacheKey] {
+            keyCacheLock.unlock()
+            return hit
+        }
+        keyCacheLock.unlock()
+
+        guard let made = makeKey(base64: b64, isPrivate: isPrivate) else { return nil }
+
+        keyCacheLock.lock()
+        keyCache[cacheKey] = made
+        keyCacheLock.unlock()
+        return made
     }
 
-    private static func decryptPrivateKey() -> SecKey? {
-        if let k = cachedDecryptKey { return k }
-        let k = makeKey(base64: decryptPrivateKeyB64, isPrivate: true)
-        cachedDecryptKey = k
-        return k
-    }
+    static func publicKey(_ b64: String) -> SecKey? { cachedKey(b64, isPrivate: false) }
+    static func privateKey(_ b64: String) -> SecKey? { cachedKey(b64, isPrivate: true) }
 
     private static func makeKey(base64: String, isPrivate: Bool) -> SecKey? {
         guard let der = Data(base64Encoded: base64) else {

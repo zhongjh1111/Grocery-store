@@ -11,6 +11,7 @@
 //
 
 import XCTest
+import Security
 @testable import PXVR
 
 final class PXVRProtocolTests: XCTestCase {
@@ -38,6 +39,65 @@ final class PXVRProtocolTests: XCTestCase {
             throw XCTSkip("testvectors.json 未打进测试 bundle")
         }
         return try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: url))
+    }
+
+
+    // MARK: - 自足验证（不依赖任何真实密钥）
+
+    /// 临时生成一对 RSA 密钥，跑完整 encode → decode 往返。
+    /// 覆盖：deflate / 零填充 / AES-256-CBC / SHA-256 / PKCS#1 / RSA 双向。
+    /// 这样公开仓库里不携带任何密钥，也能验证链路是通的。
+    func testEphemeralKeyRoundTrip() throws {
+        let keys = try Self.makeEphemeralKeyPair()
+
+        let payload = Data(#"{"c":"wd","v":20261028,"m":"HUAWEI ELS-AN00"}"#.utf8)
+        let proto = PXVRProtocol(seed: Data(repeating: 0x5A, count: 48), keys: keys)
+        let hex = proto.encode(payload, timestamp: 1_794_320_400)
+
+        XCTAssertFalse(hex.isEmpty, "encode 返回空，说明密钥或加密链路有问题")
+
+        guard let wire = PXVRProtocol.bytes(fromHex: hex) else {
+            return XCTFail("输出不是合法 hex")
+        }
+        XCTAssertGreaterThan(wire.count, 256, "报文应含 256 字节头 + 密文")
+        XCTAssertEqual(wire.count % 16, 0, "总长度应是 16 的倍数")
+
+        let plain = try PXVRProtocol.decode(Data(wire), keys: keys)
+        XCTAssertEqual(plain, payload, "往返后明文不一致")
+    }
+
+    /// 同一会话连续两次 encode 必须不同（DRBG 有推进）
+    func testEphemeralKeyChangesPerCall() throws {
+        let keys = try Self.makeEphemeralKeyPair()
+        let proto = PXVRProtocol(seed: Data(repeating: 0x11, count: 48), keys: keys)
+        let payload = Data(#"{"c":"wd"}"#.utf8)
+
+        let a = proto.encode(payload, timestamp: 1_794_320_400)
+        let b = proto.encode(payload, timestamp: 1_794_320_400)
+        XCTAssertNotEqual(a, b, "两次 encode 应因 DRBG 推进而不同")
+    }
+
+    // MARK: - 临时密钥
+
+    private static func makeEphemeralKeyPair() throws -> PXVRKeys {
+        let attrs: [String: Any] = [
+            kSecAttrKeyType as String: kSecAttrKeyTypeRSA,
+            kSecAttrKeySizeInBits as String: 2048
+        ]
+        var pub: SecKey?
+        var priv: SecKey?
+        let status = SecKeyGeneratePair(attrs as CFDictionary, &pub, &priv)
+        guard status == errSecSuccess, let pubKey = pub, let privKey = priv else {
+            throw NSError(domain: "PXVRProtocolTests", code: Int(status),
+                          userInfo: [NSLocalizedDescriptionKey: "临时密钥生成失败"])
+        }
+        guard let pubRef = SecKeyCopyExternalRepresentation(pubKey, nil),
+              let privRef = SecKeyCopyExternalRepresentation(privKey, nil) else {
+            throw NSError(domain: "PXVRProtocolTests", code: -1,
+                          userInfo: [NSLocalizedDescriptionKey: "密钥导出失败"])
+        }
+        return PXVRKeys(encryptPublicB64: (pubRef as Data).base64EncodedString(),
+                        decryptPrivateB64: (privRef as Data).base64EncodedString())
     }
 
     // MARK: - 用例
