@@ -32,7 +32,7 @@ struct ContentView: View {
                 Text("签名校验失败").foregroundColor(.red)
             }
             if let wv = PXVRWebView.shared.view {
-                RepresentedWebView(wv)
+                RepresentedWebView(webView: wv)
             }
         }
         .padding()
