@@ -2,77 +2,103 @@
 //  PXVRWebBridge.swift
 //  PXVR-iOS
 //
-//  网页 ⇄ 原生的双向桥。
+//  网页 ⇄ 原生 的双向桥。
 //
-//  JS 侧命名沿用 `net.ngee.wv`（与原版保持一致，方便复用已有脚本片段）。
-//  JS 调用 → JS 垫片把消息塞进 webkit.messageHandlers.pxvr → Swift 收
-//  原生调用 → evaluateJavaScript 调 window.__pxvr.native(name, payload) → JS 侧分发器
+//  命名规则：JS 侧挂在 `window.Sensei`（老师）下，方法名用学生名表达语义。
+//  **接口形态是回调式**——iOS 的 WKWebView 没有 addJavascriptInterface 那种同步返回，
+//  所有取值都必须走 Promise。
+//
+//  JS 侧用法：
+//      const s = await Sensei.arona("feedback_title");
+//      Sensei.serika("https://example.com");
+//      const n = await Sensei.shiroko();
 //
 
 import Foundation
+import UIKit
 import WebKit
 
-/// 一条来自网页的消息
-struct PXVRWebMessage {
-    let name: String
+// MARK: - 能力表
+
+/// 一一对应原版的 11 个 @JavascriptInterface 方法，改用学生名表达语义。
+enum PXVRNativeAPI: String, CaseIterable {
+    /// 阿罗娜：查资料 → 取文案/配置。参数 key
+    case arona
+    /// 优香：算数值 → 屏幕缩放百分比
+    case yuuka
+    /// 白子：列清单 → 取下载/收藏列表
+    case shiroko
+    /// 爱丽丝：处理素材 → 选图并做解码/缩放/哈希
+    case aris
+    /// 星野：切状态 → UI 切换
+    case hoshino
+    /// 芹香：跑腿 → 打开外部链接
+    case serika
+    /// 普拉娜：备份/副官 → 打开内置页面
+    case plana
+    /// 未花：门面 → 应用图标
+    case mika
+    /// 宁瑠：干活一号 → 主线程动作
+    case neru
+    /// 卡琳：干活二号 → 主线程动作
+    case karin
+    /// 日奈：值守 → 版本/环境信息
+    case hina
+}
+
+/// 一条来自网页的调用
+struct PXVRWebCall {
+    let api: PXVRNativeAPI
     let args: [String: Any]
-    /// 触发消息的页面地址，便于区分主框架 / iframe
+    /// 回注用的编号
+    let callbackID: Int
     let url: String
 }
 
 protocol PXVRWebBridgeDelegate: AnyObject {
-    func webBridge(_ bridge: PXVRWebBridge, didReceive message: PXVRWebMessage)
+    /// 处理桥自己实现不了的能力。实现方必须调用 reply（可传 nil）。
+    func webBridge(_ bridge: PXVRWebBridge,
+                   perform call: PXVRWebCall,
+                   reply: @escaping (Any?) -> Void)
 }
+
+// MARK: - 桥
 
 final class PXVRWebBridge: NSObject {
 
-    /// 与 JS 侧约定的通道名
-    static let handlerName = "pxvr"
-    /// 暴露给网页的全局命名空间
-    static let namespace = "net.ngee.wv"
+    /// 与 JS 侧约定的消息通道名
+    static let handlerName = "sensei"
+    /// JS 全局命名空间
+    static let namespace = "Sensei"
 
     weak var webView: WKWebView?
     weak var delegate: PXVRWebBridgeDelegate?
 
-    /// 最近一次收到的 ready 消息，用于避免重复初始化
     private(set) var isReady = false
 
-    // MARK: - 安装
+    /// arona(key) 的本地兜底文案
+    private let strings: [String: String]
 
-    /// 把桥装进配置。必须在创建 WKWebView 之前调用。
+    init(strings: [String: String] = [:]) {
+        self.strings = strings
+        super.init()
+    }
+
+    // MARK: 安装
+
+    /// 必须在创建 WKWebView 之前调用。
     func install(into configuration: WKWebViewConfiguration) {
         let ucc = WKUserContentController()
         ucc.add(self, name: Self.handlerName)
-
-        // 越早注入越好：atDocumentStart 保证页面脚本运行前垫片已就位
-        let script = WKUserScript(source: Self.bootstrapScript,
-                                  injectionTime: .atDocumentStart,
-                                  forMainFrameOnly: false)
-        ucc.addUserScript(script)
-
+        ucc.addUserScript(WKUserScript(source: Self.bootstrapScript,
+                                       injectionTime: .atDocumentStart,
+                                       forMainFrameOnly: false))
         configuration.userContentController = ucc
     }
 
-    // MARK: - 原生 → 网页
+    // MARK: 原生 → 网页
 
-    /// 调用网页里的分发器。payload 必须能 JSON 序列化。
-    func call(_ name: String, _ payload: [String: Any] = [:], completion: ((Any?) -> Void)? = nil) {
-        guard let webView = webView else {
-            PXVRLogger.warning("[bridge] webView 已释放，丢弃调用 \(name)")
-            completion?(nil)
-            return
-        }
-        let json = Self.jsonString(payload) ?? "{}"
-        let js = "window.__pxvr && window.__pxvr.native(\(Self.jsString(name)), \(json));"
-        webView.evaluateJavaScript(js) { result, error in
-            if let error = error {
-                PXVRLogger.warning("[bridge] 调用 \(name) 失败: \(error.localizedDescription)")
-            }
-            completion?(result)
-        }
-    }
-
-    /// 往页面里注入一段任意脚本（调试、热修用）
+    /// 在页面里求值
     func evaluate(_ js: String, completion: ((Any?) -> Void)? = nil) {
         webView?.evaluateJavaScript(js) { result, error in
             if let error = error {
@@ -82,16 +108,83 @@ final class PXVRWebBridge: NSObject {
         }
     }
 
-    // MARK: - 工具
+    /// 主动推事件给页面：Sensei.on("名字", cb) 接收
+    func push(_ event: String, _ payload: [String: Any] = [:]) {
+        let json = Self.json(payload) ?? "{}"
+        evaluate("window.Sensei && window.Sensei.__emit(\(Self.jsString(event)), \(json));")
+    }
 
-    private static func jsonString(_ obj: [String: Any]) -> String? {
+    // MARK: 内部
+
+    private func reply(_ id: Int, _ value: Any?) {
+        let body: String
+        if let dict = value as? [String: Any] {
+            body = Self.json(["v": dict]) ?? "{\"v\":null}"
+        } else if let s = value as? String {
+            body = Self.json(["v": s]) ?? "{}"
+        } else if let n = value as? NSNumber {
+            body = "{\"v\":\(n)}"
+        } else if let arr = value as? [Any], JSONSerialization.isValidJSONObject(["v": arr]) {
+            body = Self.json(["v": arr]) ?? "{}"
+        } else {
+            body = "{\"v\":null}"
+        }
+        evaluate("window.Sensei && window.Sensei.__reply(\(id), \(body));")
+    }
+
+    /// 桥自己能答的先答，答不了的转给 delegate
+    private func dispatch(_ call: PXVRWebCall) {
+        switch call.api {
+        case .arona:
+            let key = call.args["key"] as? String ?? ""
+            reply(call.callbackID, strings[key])
+
+        case .yuuka:
+            let pct = Int((UIScreen.main.scale * 100).rounded())
+            reply(call.callbackID, "\(pct)%")
+
+        case .hina:
+            let info: [String: Any] = [
+                "version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0",
+                "build": Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0",
+                "system": UIDevice.current.systemVersion,
+                "model": UIDevice.current.model
+            ]
+            reply(call.callbackID, info)
+
+        case .mika:
+            reply(call.callbackID, Self.appIconBase64())
+
+        default:
+            if let d = delegate {
+                d.webBridge(self, perform: call) { [weak self] value in
+                    self?.reply(call.callbackID, value)
+                }
+            } else {
+                PXVRLogger.warning("[bridge] \(call.api.rawValue) 无接收方，回 null")
+                reply(call.callbackID, nil)
+            }
+        }
+    }
+
+    private static func appIconBase64() -> String? {
+        guard let icons = Bundle.main.infoDictionary?["CFBundleIcons"] as? [String: Any],
+              let primary = icons["CFBundlePrimaryIcon"] as? [String: Any],
+              let files = primary["CFBundleIconFiles"] as? [String],
+              let name = files.last,
+              let image = UIImage(named: name),
+              let data = image.pngData() else { return nil }
+        return data.base64EncodedString()
+    }
+
+    static func json(_ obj: [String: Any]) -> String? {
         guard JSONSerialization.isValidJSONObject(obj),
-              let data = try? JSONSerialization.data(withJSONObject: obj, options: []),
+              let data = try? JSONSerialization.data(withJSONObject: obj),
               let s = String(data: data, encoding: .utf8) else { return nil }
         return s
     }
 
-    private static func jsString(_ s: String) -> String {
+    static func jsString(_ s: String) -> String {
         let escaped = s
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
@@ -99,108 +192,114 @@ final class PXVRWebBridge: NSObject {
         return "\"\(escaped)\""
     }
 
-    // MARK: - JS 垫片
+    // MARK: JS 垫片
 
-    /// 注入到每个页面的启动脚本。
-    /// 职责：
-    ///   1. 建立 `net.ngee.wv` 命名空间，把调用转发给原生
-    ///   2. 建立 `window.__pxvr.native()` 供原生回调
-    ///   3. 兜住未捕获异常与控制台输出，回传给原生便于排查
     private static let bootstrapScript: String = """
     (function () {
-      if (window.__pxvr && window.__pxvr.installed) { return; }
+      if (window.Sensei && window.Sensei.__installed) { return; }
 
       var CHANNEL = "\(handlerName)";
+      var seq = 0;
+      var pending = {};
+      var listeners = {};
 
-      function post(name, args) {
+      function post(name, args, id) {
         try {
           var h = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers[CHANNEL];
           if (!h) { return false; }
-          h.postMessage({ name: name, args: args || {}, url: String(location.href) });
+          h.postMessage({ name: name, args: args || {}, id: id || 0, url: String(location.href) });
           return true;
         } catch (e) { return false; }
       }
 
-      // 原生 → 页面 的分发器
-      var handlers = {};
-      var api = {
-        installed: true,
-        version: 1,
-        on: function (name, fn) { if (typeof fn === "function") { handlers[name] = fn; } return api; },
-        native: function (name, payload) {
-          var fn = handlers[name];
-          if (typeof fn === "function") {
-            try { return fn(payload); } catch (e) { post("error", { where: "handler:" + name, message: String(e) }); }
+      function call(name, args) {
+        return new Promise(function (resolve, reject) {
+          var id = ++seq;
+          pending[id] = { resolve: resolve, reject: reject };
+          if (!post(name, args, id)) {
+            delete pending[id];
+            reject(new Error("bridge unavailable"));
+            return;
           }
-          return null;
+          setTimeout(function () {
+            if (pending[id]) { delete pending[id]; reject(new Error("timeout: " + name)); }
+          }, 15000);
+        });
+      }
+
+      var S = {
+        __installed: true,
+        version: 1,
+
+        __reply: function (id, body) {
+          var p = pending[id];
+          if (!p) { return; }
+          delete pending[id];
+          p.resolve(body ? body.v : null);
         },
-        post: post
+
+        __emit: function (event, payload) {
+          var list = listeners[event];
+          if (!list) { return; }
+          for (var i = 0; i < list.length; i++) {
+            try { list[i](payload); } catch (e) {}
+          }
+        },
+
+        on: function (event, fn) {
+          (listeners[event] = listeners[event] || []).push(fn);
+          return S;
+        },
+
+        // ---- 学生名 → 能力 ----
+        arona:   function (key)       { return call("arona",   { key: String(key) }); },
+        yuuka:   function ()          { return call("yuuka",   {}); },
+        shiroko: function ()          { return call("shiroko", {}); },
+        aris:    function (opts)      { return call("aris",    opts || {}); },
+        hoshino: function (state)     { return call("hoshino", { state: (state === undefined ? null : state) }); },
+        serika:  function (url)       { return call("serika",  { url: String(url) }); },
+        plana:   function (page)      { return call("plana",   { page: String(page) }); },
+        mika:    function ()          { return call("mika",    {}); },
+        neru:    function (action, a) { return call("neru",    { action: String(action), args: a || {} }); },
+        karin:   function (action, a) { return call("karin",   { action: String(action), args: a || {} }); },
+        hina:    function ()          { return call("hina",    {}); }
       };
-      window.__pxvr = api;
 
-      // 兼容命名空间：页面里可直接调 net.ngee.wv.xxx()
-      var wv = window.net && window.net.ngee && window.net.ngee.wv ? window.net.ngee.wv : {};
-      wv.bridge = api;
-      wv.log = function () { post("log", { msg: Array.prototype.join.call(arguments, " ") }); };
-      wv.toast = function (m) { post("toast", { msg: String(m) }); };
-      wv.ready = function () { post("ready", { ua: navigator.userAgent, url: String(location.href) }); };
-      wv.request = function (path, opts) {
-        post("request", { path: String(path), opts: opts || {} });
-      };
-      window.net = window.net || {};
-      window.net.ngee = window.net.ngee || {};
-      window.net.ngee.wv = wv;
+      window.Sensei = S;
 
-      // 错误回传
-      window.addEventListener("error", function (ev) {
-        post("error", { where: "window", message: String(ev.message || ""), source: String(ev.filename || "") });
-      }, true);
-      window.addEventListener("unhandledrejection", function (ev) {
-        post("error", { where: "promise", message: String(ev.reason || "") });
-      }, true);
-
-      // SPA 路由变化（Pixiv 是单页应用，靠 pushState 切页）
+      // 路由变化推给页面（Pixiv 是单页应用）
       var push = history.pushState;
       history.pushState = function () {
         var r = push.apply(this, arguments);
-        post("route", { url: String(location.href) });
+        S.__emit("route", { url: String(location.href) });
         return r;
       };
       window.addEventListener("popstate", function () {
-        post("route", { url: String(location.href) });
+        S.__emit("route", { url: String(location.href) });
       });
-
-      // DOM 就绪后再报一次，便于原生注入 UI
-      document.addEventListener("DOMContentLoaded", function () { post("domready", {}); });
     })();
     """
 }
 
-// MARK: - WKScriptMessageHandler
+// MARK: - 收消息
 
 extension PXVRWebBridge: WKScriptMessageHandler {
 
-    func userContentController(_ userContentController: WKUserContentController,
+    func userContentController(_ controller: WKUserContentController,
                                didReceive message: WKScriptMessage) {
         guard message.name == Self.handlerName else { return }
 
         let url = message.frameInfo.request.url?.absoluteString ?? ""
-        var name = "unknown"
-        var args: [String: Any] = [:]
-
-        if let body = message.body as? [String: Any] {
-            name = body["name"] as? String ?? "unknown"
-            args = body["args"] as? [String: Any] ?? [:]
-        } else if let text = message.body as? String, !text.isEmpty {
-            // 兜底：页面直接 postMessage 了字符串
-            name = "raw"
-            args = ["text": text]
+        guard let body = message.body as? [String: Any],
+              let raw = body["name"] as? String,
+              let api = PXVRNativeAPI(rawValue: raw) else {
+            PXVRLogger.warning("[bridge] 未知调用")
+            return
         }
 
-        if name == "ready" { isReady = true }
+        let args = body["args"] as? [String: Any] ?? [:]
+        let id = body["id"] as? Int ?? 0
 
-        let msg = PXVRWebMessage(name: name, args: args, url: url)
-        PXVRLogger.debug("[bridge] ← \(name) \(args.keys.sorted())")
-        delegate?.webBridge(self, didReceive: msg)
+        dispatch(PXVRWebCall(api: api, args: args, callbackID: id, url: url))
     }
 }
