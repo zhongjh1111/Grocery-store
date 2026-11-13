@@ -37,7 +37,7 @@ jobs:
 
       - name: 编译 + 跑测试
         run: |
-          set -o pipefail
+          set +e
           xcodebuild test \
             -project PXVR.xcodeproj \
             -scheme PXVR \
@@ -45,7 +45,34 @@ jobs:
             -resultBundlePath TestResults.xcresult \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            ONLY_ACTIVE_ARCH=YES
+            ONLY_ACTIVE_ARCH=YES > build.log 2>&1
+          STATUS=$?
+          set -e
+
+          if [ $STATUS -ne 0 ]; then
+            echo "===== 编译/测试失败，错误摘录如下 ====="
+            # 把错误升级成 annotation，便于在 PR 页面直接看到，也便于外部读取
+            grep -nE "error:|Testing failed|BUILD FAILED|Undefined symbol|Cannot find|no such module" build.log \
+              | head -25 | while IFS= read -r line; do
+                echo "::error title=xcodebuild::$line"
+              done
+            echo "===================================="
+            echo "----- 日志尾部 120 行 -----"
+            tail -120 build.log
+          else
+            echo "构建与测试通过"
+          fi
+
+          cp build.log "${RUNNER_TEMP}/build.log" 2>/dev/null || true
+          exit $STATUS
+
+      - name: 总是上传构建日志
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: pxvr-ios/build.log
+          if-no-files-found: ignore
 
       - name: 失败时上传结果包
         if: failure()
