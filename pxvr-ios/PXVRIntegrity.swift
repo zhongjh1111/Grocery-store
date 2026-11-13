@@ -55,7 +55,7 @@ struct PXVRDebugger {
         var size = MemoryLayout<kinfo_proc>.stride
         let rc = sysctl(&mib, UInt32(mib.count), &info, &size, nil, 0)
         guard rc == 0 else { return false }
-        return (info.kp_proc.p_flag & P_TRACED) != 0
+        return (UInt32(bitPattern: info.kp_proc.p_flag) & P_TRACED) != 0
     }
 }
 
@@ -70,11 +70,24 @@ struct PXVRInjection {
     ]
 
     /// 枚举所有已加载 dyld 镜像，检测注入 / 钩子框架。
+    ///
+    /// `_dyld_image_count` / `_dyld_get_image_name` 是 dyld 的私有导出符号，
+    /// Swift 不会自动导入，这里用 dlsym 取函数指针再调用。
     static func detectInjectedFrameworks() -> [String] {
+        typealias ImageCountFn = @convention(c) () -> UInt32
+        typealias ImageNameFn = @convention(c) (UInt32) -> UnsafePointer<CChar>?
+
         var found: [String] = []
-        let count = _dyld_image_count()
-        for i in 0..<count {
-            guard let namePtr = _dyld_get_image_name(i) else { continue }
+        let rtldDefault = UnsafeMutableRawPointer(bitPattern: -2)   // RTLD_DEFAULT
+        guard let symCount = dlsym(rtldDefault, "_dyld_image_count"),
+              let symName = dlsym(rtldDefault, "_dyld_get_image_name") else {
+            return found
+        }
+        let imageCount = unsafeBitCast(symCount, to: ImageCountFn.self)
+        let imageName = unsafeBitCast(symName, to: ImageNameFn.self)
+
+        for i in 0..<imageCount() {
+            guard let namePtr = imageName(i) else { continue }
             let name = String(cString: namePtr)
             let lower = name.lowercased()
             for frag in suspiciousFragments where lower.contains(frag) {
