@@ -31,22 +31,15 @@ struct PXVRCodeIntegrity {
     /// 校验主 Bundle 的代码签名有效性 + 非 ad-hoc +（可选）团队一致。
     /// 对应 App.a()：主包与 net.ngee.wv 必须同源签名；iOS 单 bundle 由 Apple 同团队签名即等价保证。
     /// 这里保留「防篡改 / 防重签」的意图。
+    ///
+    /// 注：iOS 不提供 macOS 那套 SecStaticCode / SecCodeCheckValidity，
+    /// 改用 SecTask 读取运行时授权信息，从中取签名团队标识。
     static func verify(expectedTeam: String? = nil) -> Result<Void, PXVRIntegrityError> {
-        guard let execURL = Bundle.main.executableURL else {
+        guard Bundle.main.bundleIdentifier != nil else {
             return .failure(.missingBundle)
         }
-        var staticCode: SecStaticCode?
-        var status = SecStaticCodeCreateWithPath(execURL as CFURL, SecCSFlags(), &staticCode)
-        guard status == errSecSuccess, let code = staticCode else {
-            return .failure(.cannotCreateStaticCode(status))
-        }
-        // 基础有效性校验（验证签名链、未篡改）
-        status = SecCodeCheckValidity(code, SecCSFlags(), nil)
-        guard status == errSecSuccess else {
-            return .failure(.invalidSignature(status))
-        }
-        // 校验非 ad-hoc（ad-hoc 签名在「对接真实服务器」场景视为不可信 / 被重签）
-        guard let team = teamIdentifier(for: code), !team.isEmpty else {
+        // ad-hoc 签名的 App 拿不到团队标识，视为不可信
+        guard let team = teamIdentifier(), !team.isEmpty else {
             return .failure(.adHocOrUnsigned)
         }
         if let expected = expectedTeam, team != expected {
@@ -55,11 +48,25 @@ struct PXVRCodeIntegrity {
         return .success(())
     }
 
-    private static func teamIdentifier(for code: SecStaticCode) -> String? {
-        var info: CFDictionary?
-        guard SecCodeCopySigningInformation(code, SecCSFlags(), &info) == errSecSuccess,
-              let dict = info as? [String: Any] else { return nil }
-        return dict[kSecCodeInfoTeamIdentifier as String] as? String
+    /// 读取本进程的签名团队标识。
+    /// 优先取 `com.apple.developer.team-identifier`；取不到时回退解析
+    /// `application-identifier`（形如 `TEAMID.bundleid`）的第一段。
+    private static func teamIdentifier() -> String? {
+        guard let task = SecTaskCreateFromSelf(nil) else { return nil }
+
+        let teamKey = "com.apple.developer.team-identifier" as CFString
+        if let team = SecTaskCopyValueForEntitlement(task, teamKey, nil) as? String,
+           !team.isEmpty {
+            return team
+        }
+
+        let appIDKey = "application-identifier" as CFString
+        if let appID = SecTaskCopyValueForEntitlement(task, appIDKey, nil) as? String,
+           let head = appID.split(separator: ".").first {
+            return String(head)
+        }
+
+        return nil
     }
 }
 
