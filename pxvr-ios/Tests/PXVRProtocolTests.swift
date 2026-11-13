@@ -141,14 +141,20 @@ final class PXVRProtocolTests: XCTestCase {
 
     /// DRBG 播种后首个 16 字节（即报文 IV）应与参考实现一致
     func testGIVMatchesReference() throws {
-        try requireKeys()
-        let fixture = try loadFixture()
-        guard let first = fixture.vectors.first,
-              let seedBytes = PXVRProtocol.bytes(fromHex: first.seed) else {
-            throw XCTSkip("无向量")
+        // 只看 DRBG 输出，不涉及 RSA 密钥，所以脱敏版也能跑。
+        // 向量是 NIST CTR_DRBG 风格已知答案，不含任何机密。
+        let bundle = Bundle(for: type(of: self))
+        guard let url = bundle.url(forResource: "drbg_vector", withExtension: "json") else {
+            throw XCTSkip("drbg_vector.json 未打进测试 bundle")
+        }
+        struct V: Decodable { let seed: String; let g_iv_hint: String }
+        let v = try JSONDecoder().decode(V.self, from: Data(contentsOf: url))
+
+        guard let seedBytes = PXVRProtocol.bytes(fromHex: v.seed) else {
+            return XCTFail("seed 非法")
         }
         let proto = PXVRProtocol(seed: Data(seedBytes))
-        XCTAssertEqual(PXVRProtocol.hexString(proto.gIV), fixture.g_iv_hint,
+        XCTAssertEqual(PXVRProtocol.hexString(proto.gIV), v.g_iv_hint,
                        "G_IV 与参考实现不一致，说明 DRBG 实现有偏差")
     }
 
