@@ -143,8 +143,16 @@ jobs:
           rm -rf Payload PXVRUI-unsigned.ipa
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/
-          # ad-hoc 签名：越狱机上 AppSync 能直接装，TrollStore 也更容易接受
-          codesign --force --sign - Payload/PXVRUI.app || echo "ad-hoc 签名失败（不影响 AppSync 安装）"
+          # ad-hoc 签名 + 注入 entitlements。
+          # 没有 application-identifier 会被 iOS 拒绝："Application is missing the application-identifier entitlement"
+          codesign --force --sign - \
+            --entitlements PXVRUI.entitlements \
+            --timestamp=none \
+            Payload/PXVRUI.app
+          echo "----- 签名后的 entitlements -----"
+          codesign -d --entitlements :- Payload/PXVRUI.app 2>/dev/null || true
+          echo "----- 签名信息 -----"
+          codesign -dv Payload/PXVRUI.app 2>&1 | head -8 || true
           zip -qry PXVRUI-unsigned.ipa Payload
           ls -lh PXVRUI-unsigned.ipa
           echo "二进制架构:"
