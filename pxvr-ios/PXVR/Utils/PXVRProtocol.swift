@@ -47,11 +47,21 @@ struct PXVRKeys {
         !encryptPublicB64.isEmpty && !decryptPrivateB64.isEmpty
     }
 
-    /// 仓库内置（脱敏版为空串）
-    static let shipped = PXVRKeys(
-        encryptPublicB64: "",
-        decryptPrivateB64: ""
-    )
+    /// 仓库内置值。
+    ///
+    /// 公开仓库不携带密钥：优先从 Bundle 里的 `PXVRKeys.json` 读取
+    /// （CI 通过 Actions Secret 在构建前写入），找不到就用空串，
+    /// 此时 encode() 返回空、相关用例自动跳过。
+    static let shipped: PXVRKeys = {
+        guard let url = Bundle.main.url(forResource: "PXVRKeys", withExtension: "json"),
+              let data = try? Data(contentsOf: url),
+              let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: String]
+        else {
+            return PXVRKeys(encryptPublicB64: "", decryptPrivateB64: "")
+        }
+        return PXVRKeys(encryptPublicB64: obj["encryptPublicB64"] ?? "",
+                        decryptPrivateB64: obj["decryptPrivateB64"] ?? "")
+    }()
 }
 
 final class PXVRProtocol {

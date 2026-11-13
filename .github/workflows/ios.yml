@@ -18,10 +18,24 @@ jobs:
   build-and-test:
     runs-on: macos-15
     timeout-minutes: 30
+    env:
+      PXVR_KEYS_B64: ${{ secrets.PXVR_KEYS_B64 }}
+      PXVR_VECTORS_B64: ${{ secrets.PXVR_VECTORS_B64 }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: 注入密钥与测试向量（未配置 Secret 时跳过）
+        if: env.PXVR_KEYS_B64 != ''
+        run: |
+          mkdir -p PXVR/Resources Tests/Resources
+          echo "$PXVR_KEYS_B64" | base64 --decode > PXVR/Resources/PXVRKeys.json
+          if [ -n "$PXVR_VECTORS_B64" ]; then
+            echo "$PXVR_VECTORS_B64" | base64 --decode > Tests/Resources/testvectors.json
+          fi
+          echo "已写入 PXVRKeys.json（长度 $(wc -c < PXVR/Resources/PXVRKeys.json)）"
+          ls Tests/Resources/ | head
 
       - name: 显示 Xcode 版本
         run: xcodebuild -version
