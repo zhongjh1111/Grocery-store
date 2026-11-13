@@ -108,6 +108,15 @@ targets:
       - target: PXVR
 
 schemes:
+  PXVRUI:
+    build:
+      targets:
+        PXVRUI: all
+    run:
+      config: Release
+    archive:
+      config: Release
+
   PXVR:
     build:
       targets:

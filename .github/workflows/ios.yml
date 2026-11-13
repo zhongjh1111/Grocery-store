@@ -123,7 +123,7 @@ jobs:
         run: |
           xcodebuild build \
             -project PXVR.xcodeproj \
-            -target PXVRUI \
+            -scheme PXVRUI \
             -configuration Release \
             -sdk iphoneos \
             -derivedDataPath build \
