@@ -19,7 +19,7 @@
 
 import Foundation
 import Security
-import Darwin   // sysctl / kinfo_proc / P_TRACED / fork
+import Darwin   // sysctl / kinfo_proc / P_TRACED / dlsym
 
 // P_TRACED 在 sys/proc.h 中定义，但 Swift 的 Darwin module 不一定暴露，这里显式给出（macOS/iOS 同值）。
 private let P_TRACED: UInt32 = 0x0000_0800
@@ -130,18 +130,15 @@ struct PXVRJailbreak {
             "/etc/apt", "/var/lib/cydia", "/var/tmp/cydia.log", "/usr/bin/ssh"
         ]
         let hasJBFile = jbPaths.contains { FileManager.default.fileExists(atPath: $0) }
-        // 3) 能否 fork（沙盒 App 不能 fork）
+        // 3) fork 检测（iOS 不可用，恒 false，保留结构以便对齐）
         let canFork = PXVRJailbreak._canFork()
         return writable || hasJBFile || canFork
     }
 
+    /// iOS 上 fork 不可用：Swift 直接把 `fork()` 标为 unavailable，
+    /// 而且沙盒 App 本身也无法 fork，所以这项检测在 iOS 上没有意义，恒为 false。
     private static func _canFork() -> Bool {
-        let pid = fork()
-        if pid < 0 { return false }
-        if pid == 0 { exit(0) }            // child
-        var st: Int32 = 0
-        waitpid(pid, &st, 0)
-        return true
+        return false
     }
 }
 
