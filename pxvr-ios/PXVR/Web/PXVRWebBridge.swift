@@ -76,6 +76,9 @@ final class PXVRWebBridge: NSObject {
 
     private(set) var isReady = false
 
+    /// 日志出口。宿主可替换；默认不输出，这样这个文件可以脱离工程独立复用。
+    var log: (String) -> Void = { _ in }
+
     /// arona(key) 的本地兜底文案
     private let strings: [String: String]
 
@@ -102,7 +105,7 @@ final class PXVRWebBridge: NSObject {
     func evaluate(_ js: String, completion: ((Any?) -> Void)? = nil) {
         webView?.evaluateJavaScript(js) { result, error in
             if let error = error {
-                PXVRLogger.warning("[bridge] evaluate 失败: \(error.localizedDescription)")
+                self.log("[bridge] evaluate 失败: \(error.localizedDescription)")
             }
             completion?(result)
         }
@@ -161,7 +164,7 @@ final class PXVRWebBridge: NSObject {
                     self?.reply(call.callbackID, value)
                 }
             } else {
-                PXVRLogger.warning("[bridge] \(call.api.rawValue) 无接收方，回 null")
+                self.log("[bridge] \(call.api.rawValue) 无接收方，回 null")
                 reply(call.callbackID, nil)
             }
         }
@@ -293,7 +296,7 @@ extension PXVRWebBridge: WKScriptMessageHandler {
         guard let body = message.body as? [String: Any],
               let raw = body["name"] as? String,
               let api = PXVRNativeAPI(rawValue: raw) else {
-            PXVRLogger.warning("[bridge] 未知调用")
+            log("[bridge] 未知调用")
             return
         }
 

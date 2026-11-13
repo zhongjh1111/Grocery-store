@@ -102,3 +102,57 @@ jobs:
           name: TestResults
           path: pxvr-ios/TestResults.xcresult
           if-no-files-found: ignore
+
+  # ---- 打包未签名 ipa（越狱机 + AppSync 直接装）----
+  build-ipa:
+    runs-on: macos-15
+    needs: build-and-test
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 安装 XcodeGen
+        run: brew install xcodegen
+
+      - name: 生成 Xcode 工程
+        run: xcodegen generate
+
+      - name: 构建 PXVRUI（Release / 真机 / 不签名）
+        run: |
+          xcodebuild build \
+            -project PXVR.xcodeproj \
+            -scheme PXVRUI \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            ONLY_ACTIVE_ARCH=NO
+
+      - name: 打包成 ipa
+        run: |
+          APP_PATH="build/Build/Products/Release-iphoneos/PXVRUI.app"
+          if [ ! -d "$APP_PATH" ]; then
+            echo "::error title=打包::找不到 $APP_PATH"
+            find build/Build/Products -maxdepth 2 -name "*.app" || true
+            exit 1
+          fi
+          rm -rf Payload PXVRUI-unsigned.ipa
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/
+          # ad-hoc 签名：越狱机上 AppSync 能直接装，TrollStore 也更容易接受
+          codesign --force --sign - Payload/PXVRUI.app || echo "ad-hoc 签名失败（不影响 AppSync 安装）"
+          zip -qry PXVRUI-unsigned.ipa Payload
+          ls -lh PXVRUI-unsigned.ipa
+          echo "二进制架构:"
+          lipo -info Payload/PXVRUI.app/PXVRUI || true
+
+      - name: 上传 ipa
+        uses: actions/upload-artifact@v4
+        with:
+          name: PXVRUI-unsigned-ipa
+          path: pxvr-ios/PXVRUI-unsigned.ipa
+          if-no-files-found: error

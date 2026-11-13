@@ -33,6 +33,7 @@ final class PXVRWebView: NSObject {
         cfg.websiteDataStore = .default()
 
         // 桥必须在创建 WKWebView 之前装进 configuration
+        bridge.log = { PXVRLogger.warning($0) }
         bridge.install(into: cfg)
 
         let wv = WKWebView(frame: .zero, configuration: cfg)
