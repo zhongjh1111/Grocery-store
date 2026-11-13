@@ -108,7 +108,7 @@ struct PXVRConfig {
     static func verify(body: Data, signature: Data) -> Bool {
         guard let salt = PXVRConstants.configSalt.data(using: .utf8) else { return false }
         let salted = salt + body
-        let expected = Data(Insecure.SHA512.hash(data: salted))
+        let expected = Data(SHA512.hash(data: salted))
         guard expected.count >= signature.count else { return false }
         return expected.prefix(signature.count) == signature
     }
@@ -116,6 +116,6 @@ struct PXVRConfig {
     /// 计算配置签名（本地生成 config 时用于自检）。
     static func signature(of body: Data) -> Data {
         guard let salt = PXVRConstants.configSalt.data(using: .utf8) else { return Data() }
-        return Data(Insecure.SHA512.hash(data: salt + body))
+        return Data(SHA512.hash(data: salt + body))
     }
 }

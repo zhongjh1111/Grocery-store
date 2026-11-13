@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 /// Pixiv API 工具 — 封装常用的 API 调用
 /// 对应 Android 端 gf0.java / uh0.java 中的网络逻辑

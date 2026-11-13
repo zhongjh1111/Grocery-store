@@ -19,7 +19,7 @@
 
 import Foundation
 import Security
-import Darwin   // sysctl / kinfo_proc / P_TRACED / fork
+import Darwin   // sysctl / kinfo_proc / P_TRACED / dlsym
 
 // P_TRACED 在 sys/proc.h 中定义，但 Swift 的 Darwin module 不一定暴露，这里显式给出（macOS/iOS 同值）。
 private let P_TRACED: UInt32 = 0x0000_0800
@@ -32,34 +32,14 @@ struct PXVRCodeIntegrity {
     /// 对应 App.a()：主包与 net.ngee.wv 必须同源签名；iOS 单 bundle 由 Apple 同团队签名即等价保证。
     /// 这里保留「防篡改 / 防重签」的意图。
     static func verify(expectedTeam: String? = nil) -> Result<Void, PXVRIntegrityError> {
-        guard let execURL = Bundle.main.executableURL else {
+        // iOS 没有 macOS 那套 SecStaticCode / SecCodeCheckValidity，
+        // SecTask 也没有暴露进 Swift 的 Security 接口，拿不到运行时签名团队。
+        // iOS 上「同源签名」由系统安装机制保证，这里只确认 Bundle 完整。
+        guard Bundle.main.bundleIdentifier != nil,
+              Bundle.main.executableURL != nil else {
             return .failure(.missingBundle)
         }
-        var staticCode: SecStaticCode?
-        var status = SecStaticCodeCreateWithPath(execURL as CFURL, SecCSFlags(), &staticCode)
-        guard status == errSecSuccess, let code = staticCode else {
-            return .failure(.cannotCreateStaticCode(status))
-        }
-        // 基础有效性校验（验证签名链、未篡改）
-        status = SecCodeCheckValidity(code, SecCSFlags(), nil)
-        guard status == errSecSuccess else {
-            return .failure(.invalidSignature(status))
-        }
-        // 校验非 ad-hoc（ad-hoc 签名在「对接真实服务器」场景视为不可信 / 被重签）
-        guard let team = teamIdentifier(for: code), !team.isEmpty else {
-            return .failure(.adHocOrUnsigned)
-        }
-        if let expected = expectedTeam, team != expected {
-            return .failure(.teamMismatch(expected: expected, actual: team))
-        }
         return .success(())
-    }
-
-    private static func teamIdentifier(for code: SecStaticCode) -> String? {
-        var info: CFDictionary?
-        guard SecCodeCopySigningInformation(code, SecCSFlags(), &info) == errSecSuccess,
-              let dict = info as? [String: Any] else { return nil }
-        return dict[kSecCodeInfoTeamIdentifier as String] as? String
     }
 }
 
@@ -75,7 +55,7 @@ struct PXVRDebugger {
         var size = MemoryLayout<kinfo_proc>.stride
         let rc = sysctl(&mib, UInt32(mib.count), &info, &size, nil, 0)
         guard rc == 0 else { return false }
-        return (info.kp_proc.p_flag & P_TRACED) != 0
+        return (UInt32(bitPattern: info.kp_proc.p_flag) & P_TRACED) != 0
     }
 }
 
@@ -90,11 +70,24 @@ struct PXVRInjection {
     ]
 
     /// 枚举所有已加载 dyld 镜像，检测注入 / 钩子框架。
+    ///
+    /// `_dyld_image_count` / `_dyld_get_image_name` 是 dyld 的私有导出符号，
+    /// Swift 不会自动导入，这里用 dlsym 取函数指针再调用。
     static func detectInjectedFrameworks() -> [String] {
+        typealias ImageCountFn = @convention(c) () -> UInt32
+        typealias ImageNameFn = @convention(c) (UInt32) -> UnsafePointer<CChar>?
+
         var found: [String] = []
-        let count = _dyld_image_count()
-        for i in 0..<count {
-            guard let namePtr = _dyld_get_image_name(i) else { continue }
+        let rtldDefault = UnsafeMutableRawPointer(bitPattern: -2)   // RTLD_DEFAULT
+        guard let symCount = dlsym(rtldDefault, "_dyld_image_count"),
+              let symName = dlsym(rtldDefault, "_dyld_get_image_name") else {
+            return found
+        }
+        let imageCount = unsafeBitCast(symCount, to: ImageCountFn.self)
+        let imageName = unsafeBitCast(symName, to: ImageNameFn.self)
+
+        for i in 0..<imageCount() {
+            guard let namePtr = imageName(i) else { continue }
             let name = String(cString: namePtr)
             let lower = name.lowercased()
             for frag in suspiciousFragments where lower.contains(frag) {
@@ -137,18 +130,15 @@ struct PXVRJailbreak {
             "/etc/apt", "/var/lib/cydia", "/var/tmp/cydia.log", "/usr/bin/ssh"
         ]
         let hasJBFile = jbPaths.contains { FileManager.default.fileExists(atPath: $0) }
-        // 3) 能否 fork（沙盒 App 不能 fork）
+        // 3) fork 检测（iOS 不可用，恒 false，保留结构以便对齐）
         let canFork = PXVRJailbreak._canFork()
         return writable || hasJBFile || canFork
     }
 
+    /// iOS 上 fork 不可用：Swift 直接把 `fork()` 标为 unavailable，
+    /// 而且沙盒 App 本身也无法 fork，所以这项检测在 iOS 上没有意义，恒为 false。
     private static func _canFork() -> Bool {
-        let pid = fork()
-        if pid < 0 { return false }
-        if pid == 0 { exit(0) }            // child
-        var st: Int32 = 0
-        waitpid(pid, &st, 0)
-        return true
+        return false
     }
 }
 

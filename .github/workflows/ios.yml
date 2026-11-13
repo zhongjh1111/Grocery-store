@@ -16,7 +16,7 @@ defaults:
 
 jobs:
   build-and-test:
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 30
 
     steps:
@@ -37,15 +37,49 @@ jobs:
 
       - name: 编译 + 跑测试
         run: |
-          set -o pipefail
+          set +e
           xcodebuild test \
             -project PXVR.xcodeproj \
             -scheme PXVR \
-            -destination 'platform=iOS Simulator,name=iPhone 15,OS=latest' \
+            -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
             -resultBundlePath TestResults.xcresult \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            ONLY_ACTIVE_ARCH=YES
+            ONLY_ACTIVE_ARCH=YES > build.log 2>&1
+          STATUS=$?
+          set -e
+
+          if [ $STATUS -ne 0 ]; then
+            echo "===== 编译/测试失败 ====="
+            # 按文件聚合错误，每文件一条 annotation（annotation 每步上限 10 条）
+            grep -E "error:" build.log | head -200 > errors.txt || true
+            if [ -s errors.txt ]; then
+              cut -d: -f1 errors.txt | sort -u | head -10 | while IFS= read -r f; do
+                msgs=$(grep -F "$f:" errors.txt | head -3 \
+                  | sed -E 's/^.*error: //' | tr '\n' ';' | cut -c1-600)
+                echo "::error title=$(basename "$f")::$msgs"
+              done
+              echo "----- 全部错误 ($(wc -l < errors.txt)) -----"
+              cat errors.txt
+            else
+              echo "::error title=xcodebuild::未匹配到 error: 行，见日志尾部"
+            fi
+            echo "----- 日志尾部 80 行 -----"
+            tail -80 build.log
+          else
+            echo "构建与测试通过"
+          fi
+
+          cp build.log "${RUNNER_TEMP}/build.log" 2>/dev/null || true
+          exit $STATUS
+
+      - name: 总是上传构建日志
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: pxvr-ios/build.log
+          if-no-files-found: ignore
 
       - name: 失败时上传结果包
         if: failure()

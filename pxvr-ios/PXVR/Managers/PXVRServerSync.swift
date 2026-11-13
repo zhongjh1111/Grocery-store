@@ -174,74 +174,10 @@ class PXVRServerSync {
         }
     }
 
-    // MARK: - 服务器列表获取
+    // MARK: - 服务器列表获取（已移除）
 
-    /// 从服务器获取配置 JSON
-    /// 对应 Android 端 case 0 中的服务器列表获取逻辑
-    ///
-    /// 流程：
-    /// 1. GET https://{server}/{name}.json
-    /// 2. 响应包含 "s"（签名）和 "d"（base64 编码的数据）
-    /// 3. 验证签名：SHA-256(data + "PLACEHOLDER_SALT") == s
-    /// 4. 解析数据为 JSON
-    func fetchServerConfig(configName: String, completion: @escaping (Result<[String: Any], Error>) -> Void) {
-        for server in PXVRServer.allServers {
-            let urlString = "https://\(server):443/\(configName).json"
-            guard let url = URL(string: urlString) else { continue }
-
-            var request = URLRequest(url: url)
-            request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
-
-            let session = URLSession.shared
-            let task = session.dataTask(with: request) { data, response, error in
-                guard let data = data, error == nil else {
-                    continue // 尝试下一个服务器
-                }
-
-                guard let jsonString = String(data: data, encoding: .utf8),
-                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                    continue
-                }
-
-                // 提取签名和数据
-                // 对应 Android:
-                //   String s = qw0.j(jSONObject, "s");
-                //   byte[] k2 = qw0.k(qw0.j(jSONObject, "d"));  // base64 decode
-                //   String str6 = new String(k2, charset);
-                //   验证: s.toLowerCase() == SHA256(str6 + "PLACEHOLDER_SALT")
-                guard let signature = json["s"] as? String,
-                      let encodedData = json["d"] as? String,
-                      let decodedBytes = Data(base64Encoded: encodedData),
-                      let decodedString = String(data: decodedBytes, encoding: .utf8) else {
-                    continue
-                }
-
-                // 验证签名
-                // 对应 Android: qw0.h((qw0.h(str6.getBytes(charset)) + "PLACEHOLDER_SALT").getBytes(charset))
-                let signInput = decodedString + PXVRServer.p12Password
-                let computedSig = self.sha256Hex(signInput)
-
-                if computedSig.lowercased() == signature.lowercased() {
-                    print("[PXVRServerSync] 服务器配置签名验证成功 (\(server))")
-
-                    // 解析配置 JSON
-                    if let configData = decodedString.data(using: .utf8),
-                       let config = try? JSONSerialization.jsonObject(with: configData) as? [String: Any] {
-                        completion(.success(config))
-                        return
-                    }
-                } else {
-                    print("[PXVRServerSync] 签名验证失败 (\(server))")
-                }
-            }
-            task.resume()
-        }
-
-        // 所有服务器都失败后（延迟调用）
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
-            completion(.failure(NSError(domain: "PXVR", code: -13, message: "无法获取服务器配置")))
-        }
-    }
+    // 原 fetchServerConfig 在 dataTask 闭包里用了 continue（Swift 不合法），
+    // 且全工程无调用方，已删除。需要时请用 async/await 重写。
 
     // MARK: - 私有方法
 

@@ -116,7 +116,9 @@ class NetworkManager: NSObject {
         }
 
         for item in cfItems {
-            if let identity = item[kSecImportItemIdentity as String] as? SecIdentity {
+            if let raw = item[kSecImportItemIdentity as String] {
+                // SecIdentity 是 CoreFoundation 类型，不能用 as? 做条件转换
+                let identity = raw as! SecIdentity
                 self.clientIdentity = identity
                 print("[NetworkManager] PKCS#12 客户端证书加载成功")
 

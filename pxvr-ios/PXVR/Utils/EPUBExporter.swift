@@ -293,66 +293,23 @@ class EPUBExporter {
         return filename.components(separatedBy: invalid).joined(separator: "_")
     }
 
+    /// EPUB 本质是 ZIP：`mimetype` 必须是第一个条目且不压缩。
+    ///
+    /// TODO: iOS 没有 `Process`，也不能调用 zip / python3。
+    /// 需要基于 zlib 自行实现 ZIP 写入（local file header + central directory + EOCD）。
+    /// 未实现前直接报错，不伪造成功。
     private static func zipDirectory(at source: URL, to destination: URL) throws {
-        // 使用 Process 调用 zip 命令 (macOS 上可用)
-        // 或者手动构建 ZIP
-        // 这里用 FileManager 的 coordinated write 配合 ZipArchive 风格
-        // 实际实现需要 ZipArchive 或 SSZipArchive 库
-        // 为了不依赖第三方库，我们用 zip 命令行工具
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
-        process.arguments = ["-r", "-X", destination.path, ".", "-x", "mimetype"]
-        process.currentDirectoryURL = source
-
-        // 先存 mimetype (不压缩)
-        let epubData = "application/epub+zip".data(using: .utf8)!
-        var zipData = Data([0x50, 0x4B, 0x05, 0x06]) // Local file header signature
-        // 实际上直接用 zip 命令更简单
-
-        // 简化：直接把整个目录 zip 起来
-        try? FileManager.default.removeItem(at: destination)
-
-        // 用 zip 命令打包 (macOS/Linux)
-        if FileManager.default.isExecutableFile(atPath: "/usr/bin/zip") {
-            let pipe = Pipe()
-            process.standardOutput = pipe
-            process.standardError = pipe
-            try process.run()
-            process.waitUntilExit()
-        } else {
-            // 如果没有 zip 命令，用 Python 的 zipfile
-            try zipWithPython(source: source, destination: destination)
-        }
+        throw EPUBExportError.zipNotImplemented
     }
+}
 
-    private static func zipWithPython(source: URL, destination: URL) throws {
-        let pythonScript = """
-        import zipfile, os
-        with zipfile.ZipFile('\(destination.path)', 'w', zipfile.ZIP_DEFLATED) as zf:
-            # mimetype first, stored (not compressed)
-            mt_path = os.path.join('\(source.path)', 'mimetype')
-            if os.path.exists(mt_path):
-                zf.write(mt_path, 'mimetype', zipfile.ZIP_STORED)
-            # all other files
-            for root, dirs, files in os.walk('\(source.path)'):
-                for f in files:
-                    if f == 'mimetype':
-                        continue
-                    full = os.path.join(root, f)
-                    arc = os.path.relpath(full, '\(source.path)')
-                    zf.write(full, arc, zipfile.ZIP_DEFLATED)
-        """
+enum EPUBExportError: LocalizedError {
+    case zipNotImplemented
 
-        let tempScript = FileManager.default.temporaryDirectory.appendingPathComponent("zip_\(UUID().uuidString).py")
-        try pythonScript.data(using: .utf8)!.write(to: tempScript)
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
-        process.arguments = [tempScript.path]
-        try process.run()
-        process.waitUntilExit()
-
-        try? FileManager.default.removeItem(at: tempScript)
+    var errorDescription: String? {
+        switch self {
+        case .zipNotImplemented:
+            return "EPUB 打包尚未实现（需要内置 ZIP 写入器）"
+        }
     }
 }
