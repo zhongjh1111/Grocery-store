@@ -15,9 +15,23 @@ import CryptoKit
 
 enum PXVRLogger {
     private static let log = OSLog(subsystem: "net.ngee.pxvr", category: "pxvr")
-    static func info(_ s: String)    { os_log("%{public}@", log: log, type: .info, s) }
-    static func warning(_ s: String) { os_log("%{public}@", log: log, type: .error, s) }
-    static func debug(_ s: String)   { os_log("%{public}@", log: log, type: .debug, s) }
+
+    /// 额外日志出口。UI 壳用它把网络层日志汇到屏幕上的日志面板。
+    /// 可能在任意线程被调用，实现方自行切主线程。
+    static var sink: ((String) -> Void)?
+
+    static func info(_ s: String) {
+        os_log("%{public}@", log: log, type: .info, s)
+        sink?("[net] " + s)
+    }
+    static func warning(_ s: String) {
+        os_log("%{public}@", log: log, type: .error, s)
+        sink?("[net] " + s)
+    }
+    static func debug(_ s: String) {
+        os_log("%{public}@", log: log, type: .debug, s)
+        sink?("[net] " + s)
+    }
 }
 
 // MARK: - 常量（互锁，禁止改动）

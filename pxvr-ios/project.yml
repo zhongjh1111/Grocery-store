@@ -70,7 +70,15 @@ targets:
       - path: PXVRUI
         excludes:
           - "Info.plist"
+      # 桥 + 加密 + 网络（只取必要文件，不带整个 PXVR 目录，避免 @main 冲突）
       - path: PXVR/Web/PXVRWebBridge.swift
+      - path: PXVR/Utils/PXVRProtocol.swift
+      - path: PXVRConfig.swift
+      - path: PXVRTransport.swift
+      - path: PXVRNetwork.swift
+      # 构建时注入的 p12（CI 从 Secret 写入）
+      - path: PXVRUI/Resources
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: net.ngee.pixiver.ui

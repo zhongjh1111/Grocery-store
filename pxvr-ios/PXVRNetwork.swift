@@ -17,6 +17,9 @@ import WebKit
 
 final class PXVRNetwork {
 
+    /// 设备标记（对应 Android 的 dm）。默认 0 = 未 root / 未越狱。
+    var deviceFlag: Int = 0
+
     static let shared = PXVRNetwork()
 
     /// 传输层（默认 URLSession；换成 BoringSSLTransport 即可切自定义 SSL，见 PXVRTransport.swift）。
@@ -92,10 +95,11 @@ final class PXVRNetwork {
     /// k = /xk 下发的设备 key（响应字段 "id"），r = rd||"0"，t = Android 端（首次运行未建立信任时为 0），
     /// c/v/s/m/d/wv 由 Android 端 填充。f/sr 字段仅在存在进行中下载时由 Android 端/c 添加，此处省略。
     /// krv=200 -> 清库 + exit(0)（服务器吊销，保持原语义）。
-    func performXC(baseURL: URL) async {
+    @discardableResult
+    func performXC(baseURL: URL) async -> [String: Any]? {
         guard let key = self.deviceKey, !key.isEmpty else {
             PXVRLogger.warning("/xc 缺少设备 key（应先完成 /xk）")
-            return
+            return nil
         }
         let p = PXVRDeviceProfile.shared
         let payload: [String: Any] = [
@@ -106,11 +110,11 @@ final class PXVRNetwork {
             "v": p.appVersion,              // 对应 Android v 字段（原始 APK 上报 20260606）
             "s": p.sdkInt,                  // 对应 Build.VERSION.SDK_INT
             "m": p.deviceString,            // MANUFACTURER + " " + MODEL（注意空格，与 Android 端一致）
-            "d": PXVRStartup.shared.deviceFlag, // 对应 dm 标记；干净 iOS 设备为 0，与未 root 的 Android 一致
+            "d": self.deviceFlag,          // 对应 dm 标记；干净 iOS 设备为 0，与未 root 的 Android 一致
             "wv": p.webViewVersion          // iOS 上无 net.ngee.wv 伴生 APK，固定 ""
         ]
         guard let resp = await callAPI(baseURL: baseURL, path: PXVRConstants.pathDeviceAuth, payload: payload) else {
-            return
+            return nil
         }
         // 实证联调：把服务器明文响应打出来，看它是否接受 / 起疑 / 吊销。
         PXVRLogger.info("[xc] 服务器响应: \(resp)")
@@ -119,6 +123,24 @@ final class PXVRNetwork {
             Self.clearLocalData()
             exit(0)
         }
+        return resp
+    }
+
+    /// 完整握手：/xk 拿设备 key → /xc 上报 → 从下发的配置里取主页面地址。
+    /// 返回 (主页面URL, 完整配置)。
+    func handshake(baseURL: URL) async -> (page: String?, config: [String: Any]?) {
+        guard let key = await performXK(baseURL: baseURL) else {
+            PXVRLogger.warning("握手中断：/xk 失败")
+            return (nil, nil)
+        }
+        PXVRLogger.info("/xk 成功，设备 key = \(key)")
+        guard let cfg = await performXC(baseURL: baseURL) else {
+            PXVRLogger.warning("握手中断：/xc 失败")
+            return (nil, nil)
+        }
+        let page = (cfg["mp"] as? String) ?? (cfg["hp"] as? String)
+        PXVRLogger.info("/xc 成功，主页面 = \(page ?? "<未下发>")")
+        return (page, cfg)
     }
 
     // MARK: - 真机联调：发一个包看服务器是否起疑

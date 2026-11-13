@@ -27,10 +27,35 @@ struct RootView: View {
 
     @StateObject private var controller = WebController()
     @State private var address: String = "https://www.pixiv.net"
+    @State private var server: String = ""
     @State private var showLogs = true
 
     var body: some View {
         VStack(spacing: 0) {
+
+            // 服务器 + 握手
+            HStack(spacing: 8) {
+                TextField("服务器地址（握手用）", text: $server)
+                    .textFieldStyle(.roundedBorder)
+                    .autocapitalization(.none)
+                    .disableAutocorrection(true)
+                    .keyboardType(.URL)
+                    .font(.system(size: 13))
+
+                Button {
+                    controller.connect(server: server)
+                } label: {
+                    if controller.isConnecting {
+                        ProgressView().scaleEffect(0.6)
+                    } else {
+                        Text("连接").font(.system(size: 13, weight: .semibold))
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(server.isEmpty || controller.isConnecting)
+            }
+            .padding(.horizontal, 10)
+            .padding(.top, 8)
 
             // 地址栏
             HStack(spacing: 8) {

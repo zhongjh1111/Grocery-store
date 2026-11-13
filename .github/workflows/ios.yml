@@ -108,10 +108,19 @@ jobs:
     runs-on: macos-15
     needs: build-and-test
     timeout-minutes: 25
+    env:
+      PXVR_P12_B64: ${{ secrets.PXVR_P12_B64 }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: 注入 p12 客户端证书（mTLS 用）
+        if: env.PXVR_P12_B64 != ''
+        run: |
+          mkdir -p PXVRUI/Resources
+          echo "$PXVR_P12_B64" | base64 --decode > PXVRUI/Resources/pxvr.p12
+          echo "pxvr.p12 大小: $(wc -c < PXVRUI/Resources/pxvr.p12)"
 
       - name: 安装 XcodeGen
         run: brew install xcodegen

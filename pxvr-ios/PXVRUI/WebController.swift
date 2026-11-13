@@ -18,6 +18,8 @@ final class WebController: NSObject, ObservableObject {
     @Published var isLoading = false
     @Published var canGoBack = false
     @Published var canGoForward = false
+    @Published var isConnecting = false
+    @Published var lastConfig: [String: Any] = [:]
 
     let bridge = PXVRWebBridge()
     private(set) var webView: WKWebView!
@@ -48,6 +50,10 @@ final class WebController: NSObject, ObservableObject {
         bridge.delegate = self
         webView = wv
 
+        PXVRLogger.sink = { [weak self] line in
+            DispatchQueue.main.async { self?.append(line) }
+        }
+
         append("[app] 就绪，桥已安装")
     }
 
@@ -63,6 +69,39 @@ final class WebController: NSObject, ObservableObject {
         }
         append("[app] 打开 \(url.absoluteString)")
         webView.load(URLRequest(url: url))
+    }
+
+    /// 完整握手：/xk 拿设备 key → /xc 上报 → 读下发的主页面地址并加载
+    func connect(server: String) {
+        let trimmed = server.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalized = trimmed.contains("://") ? trimmed : "https://\(trimmed)"
+        guard let url = URL(string: normalized) else {
+            append("[net] 服务器地址非法: \(trimmed)")
+            return
+        }
+        guard !isConnecting else { return }
+
+        isConnecting = true
+        append("[net] 开始握手 \(url.absoluteString)")
+
+        Task {
+            let result = await PXVRNetwork.shared.handshake(baseURL: url)
+
+            await MainActor.run {
+                self.isConnecting = false
+                self.lastConfig = result.config ?? [:]
+                if let cfg = result.config {
+                    self.append("[net] 配置字段: \(cfg.keys.sorted().joined(separator: ", "))")
+                }
+                if let page = result.page, let pageURL = URL(string: page) {
+                    self.append("[net] 加载主页面: \(page)")
+                    self.address = page
+                    self.webView.load(URLRequest(url: pageURL))
+                } else {
+                    self.append("[net] 握手结束但没有下发主页面（mp/hp 为空）")
+                }
+            }
+        }
     }
 
     func goBack() { if webView.canGoBack { webView.goBack() } }
