@@ -17,7 +17,7 @@ final class PXVRWebView: NSObject {
     private var webView: WKWebView?
 
     /// 对外转发网页消息
-    weak var delegate: PXVRWebBridgeDelegate? {
+    var delegate: PXVRWebBridgeDelegate? {
         get { bridge.delegate }
         set { bridge.delegate = newValue }
     }
