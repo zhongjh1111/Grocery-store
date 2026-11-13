@@ -34,7 +34,7 @@ final class URLSessionTransport: NSObject, URLSessionDelegate, PXVRTransport {
     private let session: URLSession
 
     private override init() {
-        self.identity = Self.loadClientIdentity()
+        self.identity = URLSessionTransport.loadClientIdentity()
         let cfg = URLSessionConfiguration.ephemeral
         // 约束到 TLS 1.2+（与 Android 一致，避免暴露实验性版本协商差异）。
         cfg.tlsMinimumSupportedProtocolVersion = .TLSv12
