@@ -143,6 +143,8 @@ jobs:
           rm -rf Payload PXVRUI-unsigned.ipa
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/
+          # ad-hoc 签名：越狱机上 AppSync 能直接装，TrollStore 也更容易接受
+          codesign --force --sign - Payload/PXVRUI.app || echo "ad-hoc 签名失败（不影响 AppSync 安装）"
           zip -qry PXVRUI-unsigned.ipa Payload
           ls -lh PXVRUI-unsigned.ipa
           echo "二进制架构:"
