@@ -58,7 +58,7 @@ final class PXVRWebView: NSObject {
 
     /// 主动通知网页某个原生事件。
     func notify(_ name: String, _ payload: [String: Any] = [:]) {
-        bridge.call(name, payload)
+        bridge.push(name, payload)
     }
 
     /// 让网页执行一段脚本（调试用）。
@@ -78,7 +78,7 @@ extension PXVRWebView: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         PXVRLogger.debug("[web] 加载完成 \(webView.url?.absoluteString ?? "?")")
         // 页面每次加载完都补一条 route，兜住垫片未触发的场景
-        bridge.call("route", ["url": webView.url?.absoluteString ?? ""])
+        bridge.push("route", ["url": webView.url?.absoluteString ?? ""])
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
