@@ -31,10 +31,14 @@ final class URLSessionTransport: NSObject, URLSessionDelegate, PXVRTransport {
     static let shared = URLSessionTransport()
 
     private let identity: SecIdentity?
-    private let session: URLSession
+    // 用隐式解包：URLSession 需要把 self 当 delegate，
+    // 而 self 只能在 super.init() 之后使用，所以不能写成 let 在 init 前半段赋值。
+    private var session: URLSession!
 
     private override init() {
         self.identity = URLSessionTransport.loadClientIdentity()
+        super.init()
+
         let cfg = URLSessionConfiguration.ephemeral
         // 约束到 TLS 1.2+（与 Android 一致，避免暴露实验性版本协商差异）。
         cfg.tlsMinimumSupportedProtocolVersion = .TLSv12
