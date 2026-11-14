@@ -95,7 +95,6 @@ final class WebController: NSObject, ObservableObject {
                 }
                 if let page = result.page, let pageURL = URL(string: page) {
                     self.append("[net] 加载主页面: \(page)")
-                    self.address = page
                     self.webView.load(URLRequest(url: pageURL))
                 } else {
                     self.append("[net] 握手结束但没有下发主页面（mp/hp 为空）")

@@ -151,7 +151,7 @@ final class PXVRNetwork {
     /// 若被拒 / 被标识，再把 PXVRDeviceProfile.shared.spoofAndroid 设为 true。
     func runHandshakeDiagnostic(baseURL: URL) {
         let p = PXVRDeviceProfile.shared
-        PXVRLogger.info("[diag] 设备画像: m=\(p.deviceString) s=\(p.sdkInt) wv=\(p.webViewVersion) v=\(p.appVersion) d=\(PXVRStartup.shared.deviceFlag) spoof=\(p.spoofAndroid)")
+        PXVRLogger.info("[diag] 设备画像: m=\(p.deviceString) s=\(p.sdkInt) wv=\(p.webViewVersion) v=\(p.appVersion) d=\(self.deviceFlag) spoof=\(p.spoofAndroid)")
         Task {
             let xk = await performXK(baseURL: baseURL)
             PXVRLogger.info("[diag] /xk -> deviceKey(k)=\(xk ?? "<nil>")")

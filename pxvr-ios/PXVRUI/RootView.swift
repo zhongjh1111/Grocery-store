@@ -146,5 +146,8 @@ struct RootView: View {
         .onAppear {
             controller.load(address)
         }
+        .onChange(of: controller.currentURL) { newValue in
+            if !newValue.isEmpty { address = newValue }
+        }
     }
 }
