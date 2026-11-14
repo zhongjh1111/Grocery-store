@@ -4,7 +4,7 @@
 <dict>
     <!-- 伪造的团队标识：越狱机上 AppSync 不校验真实性，但必须有这两个键 -->
     <key>application-identifier</key>
-    <string>ABCDE12345.net.ngee.pixiver.ui</string>
+    <string>ABCDE12345.net.ngee.pixiver</string>
     <key>com.apple.developer.team-identifier</key>
     <string>ABCDE12345</string>
     <!-- 允许调试器附加，方便 lldb 排查 -->

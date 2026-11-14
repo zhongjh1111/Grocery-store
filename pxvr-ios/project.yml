@@ -18,6 +18,10 @@ targets:
   PXVR:
     type: application
     platform: iOS
+    settings:
+      base:
+        # 出包的是 PXVRUI，它占用正式包名；这个完整版保留为内部构建
+        PRODUCT_BUNDLE_IDENTIFIER: net.ngee.pixiver.full
     sources:
       - path: PXVR
         excludes:
@@ -81,13 +85,13 @@ targets:
       - path: PXVRUI/Resources
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: net.ngee.pixiver.ui
+        PRODUCT_BUNDLE_IDENTIFIER: net.ngee.pixiver
         CURRENT_PROJECT_VERSION: "1"
         MARKETING_VERSION: "1.0"
     info:
       path: PXVRUI/Info.plist
       properties:
-        CFBundleDisplayName: PXVR UI
+        CFBundleDisplayName: PXVR
         UILaunchScreen: {}
         # 注意：不能同时写 NSAllowsArbitraryLoadsInWebContent，
         # 否则 NSAllowsArbitraryLoads 会被 iOS 忽略（10+ 的规则）。
