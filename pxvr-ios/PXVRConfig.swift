@@ -34,12 +34,32 @@ enum PXVRLogger {
     }
 }
 
+// MARK: - 注入的私有常量
+
+/// 从 Bundle 的 `PXVRKeys.json` 读取私有常量（CI 用 Actions Secret 注入）。
+/// 公开仓库里不含真值，读不到就退回占位串——此时握手必然失败，属于预期行为。
+enum PXVRInjected {
+    static let values: [String: String] = {
+        guard let url = Bundle.main.url(forResource: "PXVRKeys", withExtension: "json"),
+              let data = try? Data(contentsOf: url),
+              let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: String]
+        else { return [:] }
+        return obj
+    }()
+
+    static func string(_ key: String) -> String? {
+        guard let v = values[key], !v.isEmpty else { return nil }
+        return v
+    }
+}
+
 // MARK: - 常量（互锁，禁止改动）
 
 enum PXVRConstants {
     /// 配置签名盐 / PKCS#12 密码 / KDF 盐 —— 同一常量，互锁。
-    static let configSalt  = "PLACEHOLDER_SALT"
-    static let p12Password = "PLACEHOLDER_SALT"
+    /// 真值通过 Secret 注入；仓库里是占位串。
+    static var configSalt: String { PXVRInjected.string("configSalt") ?? "PLACEHOLDER_SALT" }
+    static var p12Password: String { PXVRInjected.string("configSalt") ?? "PLACEHOLDER_SALT" }
     static let p12Name     = "pxvr"          // Bundle 内 pxvr.p12
     static let p12Alias    = "exampleWEB"    // PKCS#12 内别名（mTLS 客户端证书）
 

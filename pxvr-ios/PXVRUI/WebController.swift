@@ -59,10 +59,21 @@ final class WebController: NSObject, ObservableObject {
 
     // MARK: 动作
 
+    /// 统一成 https：服务器只提供 TLS，http 会被 ATS 直接拦下。
+    private static func forceHTTPS(_ raw: String) -> String {
+        var s = raw
+        if !s.contains("://") { s = "https://" + s }
+        if s.lowercased().hasPrefix("http://") {
+            s = "https://" + String(s.dropFirst("http://".count))
+        }
+        return s
+    }
+
+
     func load(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        let normalized = trimmed.contains("://") ? trimmed : "https://\(trimmed)"
+        let normalized = Self.forceHTTPS(trimmed)
         guard let url = URL(string: normalized) else {
             append("[app] 地址非法: \(trimmed)")
             return
@@ -74,7 +85,7 @@ final class WebController: NSObject, ObservableObject {
     /// 完整握手：/xk 拿设备 key → /xc 上报 → 读下发的主页面地址并加载
     func connect(server: String) {
         let trimmed = server.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalized = trimmed.contains("://") ? trimmed : "https://\(trimmed)"
+        let normalized = Self.forceHTTPS(trimmed)
         guard let url = URL(string: normalized) else {
             append("[net] 服务器地址非法: \(trimmed)")
             return

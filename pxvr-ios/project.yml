@@ -52,9 +52,10 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
+        # 注意：不能同时写 NSAllowsArbitraryLoadsInWebContent，
+        # 否则 NSAllowsArbitraryLoads 会被 iOS 忽略（10+ 的规则）。
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
-          NSAllowsArbitraryLoadsInWebContent: true
         NSPhotoLibraryAddUsageDescription: "保存图片到相册"
         NSPhotoLibraryUsageDescription: "访问相册以保存图片"
         CFBundleURLTypes:
@@ -88,9 +89,10 @@ targets:
       properties:
         CFBundleDisplayName: PXVR UI
         UILaunchScreen: {}
+        # 注意：不能同时写 NSAllowsArbitraryLoadsInWebContent，
+        # 否则 NSAllowsArbitraryLoads 会被 iOS 忽略（10+ 的规则）。
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
-          NSAllowsArbitraryLoadsInWebContent: true
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
