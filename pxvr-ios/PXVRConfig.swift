@@ -53,6 +53,37 @@ enum PXVRInjected {
     }
 }
 
+
+// MARK: - 服务器列表
+
+/// 原版 `ws0.x` 是一组「异或加密的域名」，运行时用 `ol0.a()` 逐字符还原，
+/// 再逐个 DNS 解析 + 尝试，直到有一个能用。
+///
+/// 这里保留同样的还原算法；域名真值通过 Secret 注入（`servers` 字段，逗号分隔），
+/// 公开仓库不携带。
+enum PXVRServerList {
+
+    /// 与 `ol0.a()` 等价的还原：对 a-z 做按位变化量递减的凯撒位移。
+    static func decode(_ encoded: String, key: String) -> String {
+        let k = Array(key)
+        var out = ""
+        for (i, ch) in encoded.enumerated() {
+            guard ch >= "a", ch < "{" else { out.append(ch); continue }
+            let shift = Int(k[i % k.count].unicodeScalars.first!.value) % ((i % 3) + 2)
+            let v = ((Int(ch.unicodeScalars.first!.value) - 97 - shift) % 26 + 26) % 26
+            out.append(Character(UnicodeScalar(UInt8(v + 97))))
+        }
+        return out
+    }
+
+    /// 候选地址，按原版顺序。取注入的 `servers`；没有就返回空。
+    static var candidates: [String] {
+        guard let raw = PXVRInjected.string("servers") else { return [] }
+        return raw.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+}
+
 // MARK: - 常量（互锁，禁止改动）
 
 enum PXVRConstants {

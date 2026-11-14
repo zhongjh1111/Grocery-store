@@ -86,23 +86,34 @@ final class WebController: NSObject, ObservableObject {
     func connect(server: String) {
         let trimmed = server.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalized = Self.forceHTTPS(trimmed)
-        guard let url = URL(string: normalized) else {
+        let url: URL? = trimmed.isEmpty ? nil : URL(string: normalized)
+        if !trimmed.isEmpty && url == nil {
             append("[net] 服务器地址非法: \(trimmed)")
             return
         }
         guard !isConnecting else { return }
 
         isConnecting = true
-        append("[net] 开始握手 \(url.absoluteString)")
+        append("[net] 开始握手 \(url?.absoluteString ?? "（内置服务器列表）")")
 
         Task {
-            let result = await PXVRNetwork.shared.handshake(baseURL: url)
+            // 用户填了就只试它；没填则用内置列表逐个试
+            let servers: [URL]
+            if let provided = url {
+                servers = [provided]
+            } else {
+                servers = PXVRServerList.candidates.compactMap { URL(string: "https://" + $0) }
+            }
+            let result = await PXVRNetwork.shared.handshake(servers: servers)
 
             await MainActor.run {
                 self.isConnecting = false
                 self.lastConfig = result.config ?? [:]
                 if let cfg = result.config {
                     self.append("[net] 配置字段: \(cfg.keys.sorted().joined(separator: ", "))")
+                }
+                if let base = result.base {
+                    self.append("[net] 使用服务器: \(base.absoluteString)")
                 }
                 if let page = result.page, let pageURL = URL(string: page) {
                     self.append("[net] 加载主页面: \(page)")

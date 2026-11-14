@@ -160,6 +160,26 @@ final class PXVRNetwork {
         return (page, cfg)
     }
 
+    /// 按顺序尝试多个服务器，返回第一个握手成功的。
+    /// 对应原版 `ws0.x` 列表 + `ps0.run()` 里的逐个探测逻辑。
+    func handshake(servers: [URL]) async -> (page: String?, config: [String: Any]?, base: URL?) {
+        guard !servers.isEmpty else {
+            PXVRLogger.warning("没有可用服务器地址")
+            return (nil, nil, nil)
+        }
+        for (i, base) in servers.enumerated() {
+            PXVRLogger.info("[\(i + 1)/\(servers.count)] 尝试 \(base.absoluteString)")
+            let r = await handshake(baseURL: base)
+            if r.config != nil {
+                PXVRLogger.info("服务器可用：\(base.absoluteString)")
+                return (r.page, r.config, base)
+            }
+            PXVRLogger.warning("跳过：\(base.absoluteString)")
+        }
+        PXVRLogger.warning("所有服务器均不可用")
+        return (nil, nil, nil)
+    }
+
     // MARK: - 真机联调：发一个包看服务器是否起疑
 
     /// 用户验证方法：用一台真 iOS 设备发一个包，观察服务器反应。

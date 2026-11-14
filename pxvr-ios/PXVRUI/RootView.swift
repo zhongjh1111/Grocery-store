@@ -171,7 +171,7 @@ struct RootView: View {
 
                 Section(
                     header: Text("服务器"),
-                    footer: Text("填入后点「连接」执行 /xk → /xc 握手，成功后自动加载下发的首页。")
+                    footer: Text("留空则按内置服务器列表逐个尝试；填入则只用该地址。")
                 ) {
                     TextField("https://", text: $server)
                         .autocapitalization(.none)
@@ -190,7 +190,7 @@ struct RootView: View {
                             }
                         }
                     }
-                    .disabled(server.isEmpty || controller.isConnecting)
+                    .disabled(controller.isConnecting)
                 }
 
                 Section {
