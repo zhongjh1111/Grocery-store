@@ -70,14 +70,31 @@ final class URLSessionTransport: NSObject, URLSessionDelegate, PXVRTransport {
     func urlSession(_ session: URLSession,
                     didReceive challenge: URLAuthenticationChallenge,
                     completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
-        // 服务器证书按系统默认校验；仅在服务器要客户端证书时出示 pxvr.p12。
-        guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodClientCertificate,
-              let ident = identity else {
+        switch challenge.protectionSpace.authenticationMethod {
+
+        case NSURLAuthenticationMethodServerTrust:
+            // 与原版对齐：Android 的 rz0.checkServerTrusted() 是空实现（全部信任），
+            // 说明服务器用的是自签证书。系统默认校验必挂，这里显式接受。
+            guard let trust = challenge.protectionSpace.serverTrust else {
+                completionHandler(.performDefaultHandling, nil)
+                return
+            }
+            PXVRLogger.info("[tls] 接受服务器证书 \(challenge.protectionSpace.host)")
+            completionHandler(.useCredential, URLCredential(trust: trust))
+
+        case NSURLAuthenticationMethodClientCertificate:
+            guard let ident = identity else {
+                PXVRLogger.warning("[tls] 服务器要求客户端证书，但 pxvr.p12 未加载")
+                completionHandler(.performDefaultHandling, nil)
+                return
+            }
+            PXVRLogger.info("[tls] 出示客户端证书")
+            completionHandler(.useCredential,
+                              URLCredential(identity: ident, certificates: nil, persistence: .forSession))
+
+        default:
             completionHandler(.performDefaultHandling, nil)
-            return
         }
-        let credential = URLCredential(identity: ident, certificates: nil, persistence: .forSession)
-        completionHandler(.useCredential, credential)
     }
 
     func post(baseURL: URL, path: String, body: Data, headers: [String: String]) async throws -> Data {
