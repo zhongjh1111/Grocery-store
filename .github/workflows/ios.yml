@@ -110,17 +110,26 @@ jobs:
     timeout-minutes: 25
     env:
       PXVR_P12_B64: ${{ secrets.PXVR_P12_B64 }}
+      PXVR_KEYS_B64: ${{ secrets.PXVR_KEYS_B64 }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: 注入 p12 客户端证书（mTLS 用）
+      - name: 注入 p12 与密钥
         if: env.PXVR_P12_B64 != ''
         run: |
           mkdir -p PXVRUI/Resources
           echo "$PXVR_P12_B64" | base64 --decode > PXVRUI/Resources/pxvr.p12
-          echo "pxvr.p12 大小: $(wc -c < PXVRUI/Resources/pxvr.p12)"
+          echo "pxvr.p12: $(wc -c < PXVRUI/Resources/pxvr.p12) 字节"
+
+          if [ -n "$PXVR_KEYS_B64" ]; then
+            echo "$PXVR_KEYS_B64" | base64 --decode > PXVRUI/Resources/PXVRKeys.json
+            echo "PXVRKeys.json: $(wc -c < PXVRUI/Resources/PXVRKeys.json) 字节"
+          else
+            echo "::warning title=密钥缺失::没有 PXVR_KEYS_B64，App 内会 RSA 加密失败"
+          fi
+          ls -l PXVRUI/Resources/
 
       - name: 安装 XcodeGen
         run: brew install xcodegen

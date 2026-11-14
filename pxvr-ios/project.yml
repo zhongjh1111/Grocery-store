@@ -76,9 +76,8 @@ targets:
       - path: PXVRConfig.swift
       - path: PXVRTransport.swift
       - path: PXVRNetwork.swift
-      # 构建时注入的 p12（CI 从 Secret 写入）
+      # 构建时注入的 p12 与密钥（CI 从 Secret 写入，xcodegen 前就位）
       - path: PXVRUI/Resources
-        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: net.ngee.pixiver.ui
