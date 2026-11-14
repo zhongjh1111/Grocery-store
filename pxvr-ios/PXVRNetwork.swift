@@ -50,7 +50,24 @@ final class PXVRNetwork {
         for (k, v) in PXVRRequestProfile.extraHeaders { headers[k] = v }
 
         do {
-            let data = try await transport.post(baseURL: baseURL, path: path, body: body, headers: headers)
+            // 网络抖动时重试 3 次，退避 0.8s / 1.6s。
+            // 只重试传输层错误；解密失败不重试（重发同样的包结果一样）。
+            var lastError: Error?
+            var data = Data()
+            for attempt in 1...3 {
+                do {
+                    data = try await transport.post(baseURL: baseURL, path: path, body: body, headers: headers)
+                    lastError = nil
+                    break
+                } catch {
+                    lastError = error
+                    PXVRLogger.warning("\(path) 第 \(attempt) 次尝试失败: \(error.localizedDescription)")
+                    if attempt < 3 {
+                        try? await Task.sleep(nanoseconds: UInt64(attempt) * 800_000_000)
+                    }
+                }
+            }
+            if let e = lastError { throw e }
             guard let raw = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) else {
                 PXVRLogger.warning("\(path) 响应非 UTF-8 文本")
                 return nil

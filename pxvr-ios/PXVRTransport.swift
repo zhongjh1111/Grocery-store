@@ -88,7 +88,19 @@ final class URLSessionTransport: NSObject, URLSessionDelegate, PXVRTransport {
         req.httpMethod = "POST"
         for (k, v) in headers { req.setValue(v, forHTTPHeaderField: k) }
         req.httpBody = body
-        let (data, _) = try await session.data(for: req)
+        req.timeoutInterval = 20
+
+        let (data, response) = try await session.data(for: req)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+
+        // 非 2xx 时把状态码和响应体前段打出来——服务器拒绝我们的原因通常就在里面
+        if status < 200 || status >= 300 {
+            let preview = String(data: data.prefix(300), encoding: .utf8)
+                ?? "（二进制 \(data.count) 字节）"
+            PXVRLogger.warning("[http] \(path) 状态 \(status)，响应: \(preview)")
+        } else {
+            PXVRLogger.info("[http] \(path) \(status)，\(data.count) 字节")
+        }
         return data
     }
 }
