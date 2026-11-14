@@ -61,6 +61,10 @@ struct RootView: View {
 
     @State private var address = "https://www.pixiv.net"
     @State private var server = ""
+    @State private var email = ""
+    @State private var password = ""
+    @State private var invite = ""
+    @State private var isRegister = false
     @State private var showMenu = false
     @State private var showLogs = false
     @State private var showSheet = false
@@ -191,6 +195,34 @@ struct RootView: View {
                         }
                     }
                     .disabled(controller.isConnecting)
+                }
+
+                Section(
+                    header: Text("账号"),
+                    footer: Text(controller.isLoggedIn ? "已登录" : "先点上面「连接」拿到设备 key，再登录。")
+                ) {
+                    TextField("邮箱", text: $email)
+                        .autocapitalization(.none)
+                        .disableAutocorrection(true)
+                        .keyboardType(.emailAddress)
+
+                    SecureField("密码", text: $password)
+
+                    if isRegister {
+                        TextField("邀请码", text: $invite)
+                            .autocapitalization(.none)
+                            .disableAutocorrection(true)
+                    }
+
+                    Toggle("注册新账号", isOn: $isRegister)
+
+                    Button {
+                        controller.login(email: email, password: password,
+                                         action: isRegister ? "r" : "l")
+                    } label: {
+                        Text(controller.isLoggedIn ? "已登录" : (isRegister ? "注册" : "登录"))
+                    }
+                    .disabled(controller.isLoggedIn || email.isEmpty || password.isEmpty)
                 }
 
                 Section {

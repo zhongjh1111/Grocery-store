@@ -160,6 +160,29 @@ final class PXVRNetwork {
         return (page, cfg)
     }
 
+    /// 登录。对应原版 `ws0.p0("um", [a=l, m, p], cb)`：
+    /// `POST <base>/um?k=<设备key>`，body 仍是加密的 `q=`。
+    /// `a`: "l" 登录 / "r" 注册（注册还要带 `ic` 邀请码）
+    func login(baseURL: URL,
+               email: String,
+               password: String,
+               action: String = "l",
+               inviteCode: String? = nil) async -> [String: Any]? {
+        guard let key = deviceKey, !key.isEmpty else {
+            PXVRLogger.warning("/um 需要先完成 /xk")
+            return nil
+        }
+        var payload: [String: Any] = ["a": action, "m": email]
+        if action == "l" { payload["p"] = password }
+        if let ic = inviteCode, !ic.isEmpty { payload["ic"] = ic }
+
+        let path = "/um?k=\(key)"
+        PXVRLogger.info("提交登录 → \(path)")
+        let resp = await callAPI(baseURL: baseURL, path: path, payload: payload)
+        PXVRLogger.info("/um 响应: \(String(describing: resp))")
+        return resp
+    }
+
     /// 按顺序尝试多个服务器，返回第一个握手成功的。
     /// 对应原版 `ws0.x` 列表 + `ps0.run()` 里的逐个探测逻辑。
     func handshake(servers: [URL]) async -> (page: String?, config: [String: Any]?, base: URL?) {

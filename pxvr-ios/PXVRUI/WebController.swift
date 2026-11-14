@@ -20,6 +20,9 @@ final class WebController: NSObject, ObservableObject {
     @Published var canGoForward = false
     @Published var isConnecting = false
     @Published var lastConfig: [String: Any] = [:]
+    @Published var isLoggedIn = false
+    /// 握手成功的那台服务器
+    private(set) var activeServer: URL?
 
     let bridge = PXVRWebBridge()
     private(set) var webView: WKWebView!
@@ -114,12 +117,38 @@ final class WebController: NSObject, ObservableObject {
                 }
                 if let base = result.base {
                     self.append("[net] 使用服务器: \(base.absoluteString)")
+                    self.activeServer = base
                 }
                 if let page = result.page, let pageURL = URL(string: page) {
                     self.append("[net] 加载主页面: \(page)")
                     self.webView.load(URLRequest(url: pageURL))
                 } else {
                     self.append("[net] 握手结束但没有下发主页面（mp/hp 为空）")
+                }
+            }
+        }
+    }
+
+    /// 登录：需先握手拿到设备 key 和可用服务器
+    func login(email: String, password: String, action: String = "l") {
+        guard let base = activeServer else {
+            append("[login] 还没有可用服务器，先点「连接」")
+            return
+        }
+        guard !email.isEmpty, !password.isEmpty else {
+            append("[login] 邮箱或密码为空")
+            return
+        }
+        append("[login] 提交 \(action == "l" ? "登录" : "注册") \(email)")
+        Task {
+            let resp = await PXVRNetwork.shared.login(
+                baseURL: base, email: email, password: password, action: action)
+            await MainActor.run {
+                if let r = resp {
+                    self.append("[login] 成功：\(r.keys.sorted().joined(separator: ", "))")
+                    self.isLoggedIn = true
+                } else {
+                    self.append("[login] 失败（见上方 /um 响应）")
                 }
             }
         }
