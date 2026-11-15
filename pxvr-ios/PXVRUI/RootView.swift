@@ -85,7 +85,10 @@ struct RootView: View {
             Button("取消", role: .cancel) {}
         }
         .sheet(isPresented: $showSheet) { sheet }
-        .onAppear { controller.load(address) }
+        .onAppear {
+            PXVRProxyServer.shared.start()
+            controller.load(address)
+        }
         .onChange(of: controller.currentURL) { newValue in
             if !newValue.isEmpty { address = newValue }
         }

@@ -81,8 +81,27 @@ final class WebController: NSObject, ObservableObject {
             append("[app] 地址非法: \(trimmed)")
             return
         }
-        append("[app] 打开 \(url.absoluteString)")
-        webView.load(URLRequest(url: url))
+        // 一律走本地代理：iOS 无法像 Android 那样劫持 WebView 代理，
+        // 只能把目标 URL 编码进路径。
+        PXVRProxyServer.shared.start()
+        openThroughProxy(url, attempt: 0)
+    }
+
+    /// 代理是异步就绪的，第一次调用可能还没拿到端口，稍等重试
+    private func openThroughProxy(_ url: URL, attempt: Int) {
+        if let proxyURL = PXVRProxyServer.shared.entryURL(for: url.absoluteString) {
+            append("[proxy] 经本地代理打开 \(proxyURL.absoluteString)")
+            webView.load(URLRequest(url: proxyURL))
+            return
+        }
+        if attempt < 8 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+                self?.openThroughProxy(url, attempt: attempt + 1)
+            }
+        } else {
+            append("[proxy] 代理未就绪，直连打开")
+            webView.load(URLRequest(url: url))
+        }
     }
 
     /// 完整握手：/xk 拿设备 key → /xc 上报 → 读下发的主页面地址并加载
