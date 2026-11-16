@@ -2,20 +2,23 @@
 //  PXVRRouter.swift
 //  PXVRUI
 //
-//  路由表。对应原版：
-//    ws0 里的 ph 解析（ib.java case 4）
-//    ws0.u0() 把端点劈成 "地址" 和 "头:值"
-//    lj0.a() 把头发到请求上
+//  路由表，严格按原版数据与逻辑实现。
 //
-//  配置格式（实测）：
-//    ph0  = pv.b00k.pw none 58.246.149.105:50242/X-pxb:token,ts,sig
-//    ph34 = www.pixiv.net none #cf
-//    ph5  = accounts.pixiv.net none #cf
-//    sg0  = #ht 106.14.242.60:50443/X-pxk:xxx|0/2/3/... 58.246.149.105:50242/...
+//  三张表的语义（由 ph 与 ralt 的主机名一一对应关系确证）：
 //
-//  解析后：
-//    主机 → 路由(地址, 头名, 头值)
-//    没有路由 / #cf → 直连
+//  ph*   主路由。端点有四种：
+//        "ip:port/头:值"      → 连该节点，加鉴权头
+//        "210.140.139.151"    → 直连该 IP（Host 仍是原站，domain-fronting）
+//        "#pxf" / "#ht"       → 引用 sg* 节点组
+//        "#cf"                → 首选直连（无节点）
+//
+//  sg*   节点组：#ht / #pxf / #pxfi → 首个端点
+//
+//  ralt* 备路由。ph 里标 #cf 的主机，直连失败后改走这里（#pxf 节点）。
+//        例：ph34 = www.pixiv.net none #cf
+//            ralt0 = pixiv www.pixiv.net #pxf 1
+//
+//  实测（2026-11-16 22:09 雷电）：国内直连 pixiv 必失败 → 全部触发回退 → 只见节点连接。
 //
 
 import Foundation
@@ -23,9 +26,9 @@ import Foundation
 final class PXVRRouter {
 
     struct Route {
-        let address: String        // "58.246.149.105:50242"
-        let headerName: String     // "X-pxb"
-        let headerValue: String    // "token,ts,sig"
+        let address: String          // "58.246.149.105:50242" 或 "210.140.139.151:443"
+        let headerName: String?      // "X-pxb"；裸 IP 直连时为 nil
+        let headerValue: String?     // "token,ts,sig"
 
         var host: String {
             let parts = address.split(separator: ":")
@@ -38,20 +41,20 @@ final class PXVRRouter {
         }
     }
 
-    /// 精确主机映射
+    /// ph 表：精确主机 → 主路由（#cf 不写入 = 直连）
     private(set) var exact: [String: Route] = [:]
-    /// 正则主机映射（配置里以 \A 开头的）
+    /// ph 表：正则主机 → 主路由
     private(set) var patterns: [(NSRegularExpression, Route)] = []
-    /// 节点组：#ht / #pxf → 首个端点
+    /// sg 表：组名 → 节点
     private(set) var groups: [String: Route] = [:]
-    /// 后备路由（ralt 表）：主路由失败时改走这里
+    /// ralt 表：主机 → 备路由
     private(set) var fallback: [String: Route] = [:]
 
     /// 用 /xc 下发的配置重建
     func load(_ config: [String: Any]) {
-        exact.removeAll(); patterns.removeAll(); groups.removeAll()
+        exact.removeAll(); patterns.removeAll(); groups.removeAll(); fallback.removeAll()
 
-        // ① 先解析节点组 sg*，供 #ht / #pxf 引用
+        // ① sg* 节点组
         if let n = intValue(config["sg"]) {
             for i in 0..<n {
                 guard let line = config["sg\(i)"] as? String else { continue }
@@ -63,9 +66,7 @@ final class PXVRRouter {
             }
         }
 
-        // ①.5 后备路由 ralt*：`<组> <主机> <模式> <标志>`
-        // 例：ralt0 = pixiv www.pixiv.net #pxf 1
-        // 含义：www.pixiv.net 首选 #cf（直连），失败时改走 #pxf 节点
+        // ② ralt* 备路由：`<组> <主机> <模式> <标志>`
         if let n = intValue(config["ralt"]) {
             for i in 0..<n {
                 guard let line = config["ralt\(i)"] as? String else { continue }
@@ -73,12 +74,13 @@ final class PXVRRouter {
                 guard parts.count >= 3 else { continue }
                 let host = parts[1]
                 let mode = parts[2]
-                guard let r = groups[mode] else { continue }
-                fallback[host] = r
+                if let r = groups[mode] ?? Self.parseEndpoint(mode) {
+                    fallback[host] = r
+                }
             }
         }
 
-        // ② 再解析主机表 ph*
+        // ③ ph* 主路由
         if let n = intValue(config["ph"]) {
             for i in 0..<n {
                 guard let line = config["ph\(i)"] as? String else { continue }
@@ -86,19 +88,14 @@ final class PXVRRouter {
                 guard parts.count >= 3 else { continue }
                 let host = parts[0]
                 let mode = parts[1]
-                // 端点可能不止一个，取第一个能用的
                 guard let endpoint = parts[2...].first(where: { !$0.isEmpty }) else { continue }
+
+                // "#cf" = 首选直连，不设主路由（失败时由 ralt 兜底）
+                if endpoint == "#cf" { continue }
 
                 let route: Route?
                 if endpoint.hasPrefix("#") {
-                    // 引用节点组。
-                    // 注意：实测原版**从不直连**任何域名（netstat 全程只有节点 IP），
-                    // 所以 #cf 也不是"直连"，而是没有独立组的默认通道：
-                    // 优先用 #pxf（pixiv 转发），其次 #ht，最后取任意一组。
                     route = groups[endpoint]
-                        ?? groups["#pxf"]
-                        ?? groups["#ht"]
-                        ?? groups.values.first
                 } else {
                     route = Self.parseEndpoint(endpoint)
                 }
@@ -113,34 +110,39 @@ final class PXVRRouter {
                 }
             }
         }
+
+        PXVRLogger.info("[proxy] 路由表：ph 精确 \(exact.count) / ph 正则 \(patterns.count) / 组 \(groups.count) / ralt \(fallback.count)")
     }
 
-    /// 查主机对应路由；nil 表示没有可用节点
+    /// 主路由；nil 表示直连
     func route(for host: String) -> Route? {
         if let r = exact[host] { return r }
         let range = NSRange(location: 0, length: (host as NSString).length)
         for (re, r) in patterns where re.firstMatch(in: host, range: range) != nil {
             return r
         }
-        // 兜底：配置里没列到的域名，也走默认节点，避免直连超时
-        return groups["#pxf"] ?? groups["#ht"] ?? groups.values.first
+        return nil
     }
 
-    /// 主路由失败时的后备；nil 表示没有
+    /// 备路由；nil 表示无备选
     func fallbackRoute(for host: String) -> Route? {
         fallback[host]
     }
 
     // MARK: - 解析
 
-    /// "58.246.149.105:50242/X-pxb:token" → Route
-    /// 对应 ws0.u0()：按第一个 '/' 劈开
+    /// "58.246.149.105:50242/X-pxb:token" 或裸 "210.140.139.151" → Route
+    /// 对应 ws0.u0()：按第一个 '/' 劈地址与鉴权；无 '/' 即裸 IP 直连
     static func parseEndpoint(_ s: String) -> Route? {
-        guard let slash = s.firstIndex(of: "/") else { return nil }
+        guard !s.isEmpty else { return nil }
+        guard let slash = s.firstIndex(of: "/") else {
+            // 裸 IP（或 ip:port）：直连，无鉴权头
+            let addr = s.contains(":") ? s : s + ":443"
+            return Route(address: addr, headerName: nil, headerValue: nil)
+        }
         let address = String(s[s.startIndex..<slash])
         let auth = String(s[s.index(after: slash)...])
         guard !address.isEmpty, !auth.isEmpty else { return nil }
-        // auth = "X-pxb:token,..." 按第一个 ':' 劈
         guard let colon = auth.firstIndex(of: ":") else { return nil }
         let name = String(auth[auth.startIndex..<colon])
         let value = String(auth[auth.index(after: colon)...])

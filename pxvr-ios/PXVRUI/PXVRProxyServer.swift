@@ -174,9 +174,12 @@ final class PXVRProxyServer {
         req.httpShouldHandleCookies = true
         req.setValue(Self.browserUA, forHTTPHeaderField: "User-Agent")
         if let r = route, let host = target.host {
+            // Host 始终是原站，节点靠它知道转发到哪
             req.setValue(host, forHTTPHeaderField: "Host")
-            req.setValue(r.headerValue, forHTTPHeaderField: r.headerName)
-            PXVRLogger.info("[proxy] 路由 \(host) → \(r.address)  (\(r.headerName))")
+            if let name = r.headerName, let value = r.headerValue {
+                req.setValue(value, forHTTPHeaderField: name)
+            }
+            PXVRLogger.info("[proxy] 路由 \(host) → \(r.address)  (\(r.headerName ?? "直连IP"))")
         }
         if method != "GET" && method != "HEAD" {
             req.httpBody = body
