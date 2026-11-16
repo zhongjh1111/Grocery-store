@@ -212,6 +212,7 @@ final class PXVRProxyServer {
             }
             self.respond(conn, status: http?.statusCode ?? 200, reason: "OK", mime: mime, body: payload)
         }.resume()
+    }
 
     // MARK: - 输出
 

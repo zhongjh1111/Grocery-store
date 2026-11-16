@@ -68,6 +68,8 @@ struct RootView: View {
     @State private var showMenu = false
     @State private var showLogs = false
     @State private var showSheet = false
+    @State private var exportURL: URL?
+    @State private var showExport = false
 
     var body: some View {
         VStack(spacing: 0) {
