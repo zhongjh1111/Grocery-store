@@ -38,9 +38,11 @@ final class PXVRProxyServer {
     var isRunning: Bool { listener != nil && port > 0 }
 
     /// 给 WebView 用的入口地址
+    /// 用 `/p?u=<编码>` 而不是 `/https://...`：后者会被浏览器按页面 base 再解析一次，
+    /// 变成 `https://127.0.0.1:<port>/https://...`，代理就会去抓自己。
     func entryURL(for target: String) -> URL? {
-        guard port > 0 else { return nil }
-        return URL(string: "http://127.0.0.1:\(port)/\(target)")
+        guard port > 0, let path = Self.proxyPath(target) else { return nil }
+        return URL(string: "http://127.0.0.1:\(port)\(path)")
     }
 
     func start() {
@@ -190,37 +192,65 @@ final class PXVRProxyServer {
 
     static let browserUA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
 
-    /// "/https://a/b" → URL
+    /// 把真实地址编码成代理路径：/p?u=https%3A%2F%2F...
+    static func proxyPath(_ absolute: String) -> String? {
+        guard !absolute.isEmpty else { return nil }
+        // 只保留字母数字，其余全部百分号编码，避免任何二次解析
+        let strict = CharacterSet.alphanumerics
+        guard let enc = absolute.addingPercentEncoding(withAllowedCharacters: strict) else { return nil }
+        return "/p?u=\(enc)"
+    }
+
+    /// "/p?u=https%3A%2F%2F..." → URL
     static func decodeTarget(_ rawPath: String) -> URL? {
-        let decoded = rawPath.removingPercentEncoding ?? rawPath
-        var p = decoded
-        if p.hasPrefix("/") { p.removeFirst() }
-        guard !p.isEmpty else { return nil }
-        guard p.hasPrefix("http://") || p.hasPrefix("https://") else { return nil }
-        return URL(string: p)
+        guard rawPath.hasPrefix("/p?"),
+              let comps = URLComponents(string: "http://localhost" + rawPath),
+              let value = comps.queryItems?.first(where: { $0.name == "u" })?.value,
+              !value.isEmpty
+        else { return nil }
+        return URL(string: value)
     }
 
     /// 把页面里的链接改写成本地代理路径
     static func rewrite(_ html: String, base: URL) -> String {
         var out = html
 
-        // 1. 绝对链接：https://x/y → /https://x/y
-        out = out.replacingOccurrences(of: "=\"https://", with: "=\"/https://")
-        out = out.replacingOccurrences(of: "=\"http://", with: "=\"/http://")
-        out = out.replacingOccurrences(of: "(\"https://", with: "(\"/https://")
-        out = out.replacingOccurrences(of: "('https://", with: "('/https://")
-        out = out.replacingOccurrences(of: "url(https://", with: "url(/https://")
-        out = out.replacingOccurrences(of: "url('https://", with: "url('/https://")
-        out = out.replacingOccurrences(of: "url(\"https://", with: "url(\"/https://")
+        // 1) 绝对地址：https://x/y → /p?u=...
+        if let re = try? NSRegularExpression(pattern: "https?://[^\\s\"'<>()]+") {
+            out = replaceAll(out, re) { match in
+                proxyPath(match) ?? match
+            }
+        }
 
-        // 2. 根相对链接：="/xxx" → base 的 host 拼回去
-        //    只在 HTML 属性上做，避免误伤 JS 里的字符串
-        if let scheme = base.scheme, let host = base.host {
-            let prefix = "\(scheme)://\(host)"
-            out = out.replacingOccurrences(of: "=\"/", with: "=\"/\(prefix)/")
-            out = out.replacingOccurrences(of: "url(/", with: "url(\(prefix)/")
+        // 2) 根相对地址：href="/x" → href="/p?u=<origin>/x"
+        if let scheme = base.scheme, let host = base.host,
+           let re2 = try? NSRegularExpression(pattern: "(?:href|src|action)=\"(/[^\"]*)\"") {
+            let origin = "\(scheme)://\(host)"
+            out = replaceAll(out, re2) { match in
+                guard let eq = match.range(of: "=\"") else { return match }
+                let attr = String(match[..<eq.lowerBound])          // href / src / action
+                var value = String(match[eq.upperBound...])         // /x"
+                if value.hasSuffix("\"") { value.removeLast() }
+                if value.hasPrefix("/p?u=") { return match }        // 已经是代理路径
+                let encoded = proxyPath(origin + value) ?? value
+                return "\(attr)=\"\(encoded)\""
+            }
         }
         return out
+    }
+
+    /// 用正则逐段替换
+    private static func replaceAll(_ input: String, _ re: NSRegularExpression,
+                                   _ transform: (String) -> String) -> String {
+        let ns = input as NSString
+        let matches = re.matches(in: input, range: NSRange(location: 0, length: ns.length))
+        guard !matches.isEmpty else { return input }
+        var result = input
+        for m in matches.reversed() {
+            guard let r = Range(m.range, in: result) else { continue }
+            result.replaceSubrange(r, with: transform(String(result[r])))
+        }
+        return result
     }
 }
 
