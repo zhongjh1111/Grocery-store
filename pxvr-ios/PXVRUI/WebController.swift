@@ -138,6 +138,11 @@ final class WebController: NSObject, ObservableObject {
                     self.append("[net] 使用服务器: \(base.absoluteString)")
                     self.activeServer = base
                 }
+                // 把 /xc 下发的配置交给路由表，代理才知道每个域名走哪个节点
+                if let cfg = result.config, !cfg.isEmpty {
+                    PXVRProxyServer.shared.loadConfig(cfg)
+                    self.append("[proxy] 路由配置已更新（\(cfg.count) 字段）")
+                }
                 if let page = result.page, let pageURL = URL(string: page) {
                     self.append("[net] 加载主页面: \(page)")
                     self.webView.load(URLRequest(url: pageURL))

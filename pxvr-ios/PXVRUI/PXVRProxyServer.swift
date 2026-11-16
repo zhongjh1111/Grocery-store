@@ -25,6 +25,13 @@ final class PXVRProxyServer {
     private var listener: NWListener?
     private(set) var port: UInt16 = 0
     private let queue = DispatchQueue(label: "pxvr.proxy")
+    private let router = PXVRRouter()
+
+    /// 用 /xc 下发的配置重建路由表
+    func loadConfig(_ config: [String: Any]) {
+        router.load(config)
+        PXVRLogger.info("[proxy] 路由表已载入：精确 \(router.exact.count) 条 / 正则 \(router.patterns.count) 条 / 节点组 \(router.groups.count) 组")
+    }
 
     /// 允许所有证书（对齐原版 TrustManager 空实现）
     private lazy var session: URLSession = {
@@ -142,12 +149,33 @@ final class PXVRProxyServer {
 
         PXVRLogger.info("[proxy] \(method) \(target.absoluteString.prefix(120))")
 
-        var req = URLRequest(url: target)
+        // 按路由表选择上游：命中就走节点，否则直连
+        // 对应原版 lj0.c()：URL 换成节点，Host 仍是原站，另加鉴权头
+        var upstreamURL = target
+        if let host = target.host, let route = router.route(for: host) {
+            var comps = URLComponents()
+            comps.scheme = "https"
+            comps.host = route.host
+            comps.port = route.port
+            comps.path = target.path.isEmpty ? "/" : target.path
+            comps.percentEncodedQuery = target.percentEncodedQuery
+            if let u = comps.url {
+                upstreamURL = u
+            }
+            PXVRLogger.info("[proxy] 路由 \(host) → \(route.address)  (\(route.headerName))")
+        }
+
+        var req = URLRequest(url: upstreamURL)
         req.httpMethod = method
         req.httpShouldHandleCookies = true
-        // 伪装成浏览器，页面才给正常内容
         req.setValue(Self.browserUA, forHTTPHeaderField: "User-Agent")
         req.setValue(target.absoluteString, forHTTPHeaderField: "Referer")
+
+        // 节点要的三样东西（已在 Python 侧验证）
+        if let host = target.host, let route = router.route(for: host) {
+            req.setValue(host, forHTTPHeaderField: "Host")
+            req.setValue(route.headerValue, forHTTPHeaderField: route.headerName)
+        }
         if method != "GET" && method != "HEAD" {
             req.httpBody = body
             if let ct = headers["Content-Type"] { req.setValue(ct, forHTTPHeaderField: "Content-Type") }
