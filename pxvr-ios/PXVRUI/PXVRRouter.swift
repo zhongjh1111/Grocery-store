@@ -27,8 +27,15 @@ final class PXVRRouter {
         let headerName: String     // "X-pxb"
         let headerValue: String    // "token,ts,sig"
 
-        var host: String { String(address.split(separator: ":").first ?? "") }
-        var port: Int { Int(address.split(separator: ":").last ?? "443") ?? 443 }
+        var host: String {
+            let parts = address.split(separator: ":")
+            return parts.isEmpty ? address : String(parts[0])
+        }
+        var port: Int {
+            let parts = address.split(separator: ":")
+            guard parts.count > 1, let p = Int(parts[1]) else { return 443 }
+            return p
+        }
     }
 
     /// 精确主机映射
