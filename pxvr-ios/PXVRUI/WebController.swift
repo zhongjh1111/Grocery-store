@@ -20,6 +20,15 @@ final class WebController: NSObject, ObservableObject {
     @Published var canGoForward = false
     @Published var isConnecting = false
     @Published var lastConfig: [String: Any] = [:]
+
+    var logText: String { logs.joined(separator: "\n") }
+
+    func exportLogURL() -> URL? {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pxvr-log-\(Int(Date().timeIntervalSince1970)).txt")
+        do { try logText.write(to: url, atomically: true, encoding: .utf8); return url }
+        catch { return nil }
+    }
     @Published var isLoggedIn = false
     /// 握手成功的那台服务器
     private(set) var activeServer: URL?

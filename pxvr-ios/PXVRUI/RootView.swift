@@ -85,6 +85,9 @@ struct RootView: View {
             Button("取消", role: .cancel) {}
         }
         .sheet(isPresented: $showSheet) { sheet }
+        .sheet(isPresented: $showExport) {
+            if let u = exportURL { ActivityView(activityItems: [u]) }
+        }
         .onAppear {
             PXVRProxyServer.shared.start()
             controller.load(address)
@@ -140,6 +143,15 @@ struct RootView: View {
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(PXVRTheme.text(scheme))
                 Spacer()
+                Button("复制") { UIPasteboard.general.string = controller.logText }
+                    .font(.system(size: 11))
+                    .foregroundColor(PXVRTheme.link(scheme))
+                Button("导出") {
+                    exportURL = controller.exportLogURL()
+                    showExport = true
+                }
+                    .font(.system(size: 11))
+                    .foregroundColor(PXVRTheme.link(scheme))
                 Button("清空") { controller.clearLogs() }
                     .font(.system(size: 11))
                     .foregroundColor(PXVRTheme.link(scheme))
@@ -151,6 +163,7 @@ struct RootView: View {
                 LazyVStack(alignment: .leading, spacing: 1) {
                     ForEach(Array(controller.logs.enumerated()), id: \.offset) { _, line in
                         Text(line)
+                            .textSelection(.enabled)
                             .font(.system(size: 10, design: .monospaced))
                             .foregroundColor(PXVRTheme.text(scheme))
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -244,4 +257,15 @@ struct RootView: View {
             }
         }
     }
+}
+
+
+// MARK: - 分享
+
+struct ActivityView: UIViewControllerRepresentable {
+    let activityItems: [Any]
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
+    }
+    func updateUIViewController(_ vc: UIActivityViewController, context: Context) {}
 }
