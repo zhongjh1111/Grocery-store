@@ -91,10 +91,14 @@ final class PXVRRouter {
 
                 let route: Route?
                 if endpoint.hasPrefix("#") {
-                    // 引用节点组；#cf 表示直连
-                    route = (endpoint == "#cf") ? nil : groups[endpoint]
-                    if route == nil && endpoint != "#cf" { continue }
-                    if endpoint == "#cf" { continue }
+                    // 引用节点组。
+                    // 注意：实测原版**从不直连**任何域名（netstat 全程只有节点 IP），
+                    // 所以 #cf 也不是"直连"，而是没有独立组的默认通道：
+                    // 优先用 #pxf（pixiv 转发），其次 #ht，最后取任意一组。
+                    route = groups[endpoint]
+                        ?? groups["#pxf"]
+                        ?? groups["#ht"]
+                        ?? groups.values.first
                 } else {
                     route = Self.parseEndpoint(endpoint)
                 }
@@ -111,14 +115,15 @@ final class PXVRRouter {
         }
     }
 
-    /// 查主机对应路由；nil 表示直连
+    /// 查主机对应路由；nil 表示没有可用节点
     func route(for host: String) -> Route? {
         if let r = exact[host] { return r }
         let range = NSRange(location: 0, length: (host as NSString).length)
         for (re, r) in patterns where re.firstMatch(in: host, range: range) != nil {
             return r
         }
-        return nil
+        // 兜底：配置里没列到的域名，也走默认节点，避免直连超时
+        return groups["#pxf"] ?? groups["#ht"] ?? groups.values.first
     }
 
     /// 主路由失败时的后备；nil 表示没有
