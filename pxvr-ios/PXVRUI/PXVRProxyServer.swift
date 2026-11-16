@@ -149,41 +149,51 @@ final class PXVRProxyServer {
 
         PXVRLogger.info("[proxy] \(method) \(target.absoluteString.prefix(120))")
 
-        // 按路由表选择上游：命中就走节点，否则直连
-        // 对应原版 lj0.c()：URL 换成节点，Host 仍是原站，另加鉴权头
+        // 按路由表走：命中节点就转发，否则直连；直连失败按 ralt 表回退
+        fetch(conn: conn, target: target, method: method, body: body,
+              contentType: headers["Content-Type"], route: router.route(for: target.host ?? ""),
+              allowFallback: true)
+    }
+
+    /// 对应原版 lj0.c()：URL 换成节点地址，Host 保留原站，另加鉴权头
+    private func fetch(conn: NWConnection, target: URL, method: String, body: Data,
+                       contentType: String?, route: PXVRRouter.Route?, allowFallback: Bool) {
         var upstreamURL = target
-        if let host = target.host, let route = router.route(for: host) {
+        if let r = route {
             var comps = URLComponents()
             comps.scheme = "https"
-            comps.host = route.host
-            comps.port = route.port
+            comps.host = r.host
+            comps.port = r.port
             comps.path = target.path.isEmpty ? "/" : target.path
             comps.percentEncodedQuery = URLComponents(url: target, resolvingAgainstBaseURL: false)?.percentEncodedQuery
-            if let u = comps.url {
-                upstreamURL = u
-            }
-            PXVRLogger.info("[proxy] 路由 \(host) → \(route.address)  (\(route.headerName))")
+            if let u = comps.url { upstreamURL = u }
         }
 
         var req = URLRequest(url: upstreamURL)
         req.httpMethod = method
         req.httpShouldHandleCookies = true
         req.setValue(Self.browserUA, forHTTPHeaderField: "User-Agent")
-        req.setValue(target.absoluteString, forHTTPHeaderField: "Referer")
-
-        // 节点要的三样东西（已在 Python 侧验证）
-        if let host = target.host, let route = router.route(for: host) {
+        if let r = route, let host = target.host {
             req.setValue(host, forHTTPHeaderField: "Host")
-            req.setValue(route.headerValue, forHTTPHeaderField: route.headerName)
+            req.setValue(r.headerValue, forHTTPHeaderField: r.headerName)
+            PXVRLogger.info("[proxy] 路由 \(host) → \(r.address)  (\(r.headerName))")
         }
         if method != "GET" && method != "HEAD" {
             req.httpBody = body
-            if let ct = headers["Content-Type"] { req.setValue(ct, forHTTPHeaderField: "Content-Type") }
+            if let ct = contentType { req.setValue(ct, forHTTPHeaderField: "Content-Type") }
         }
 
         session.dataTask(with: req) { [weak self] data, resp, err in
             guard let self = self else { return }
             if let e = err {
+                // 直连失败时按 ralt 表改走节点（原版同样有此回退）
+                if allowFallback, let host = target.host,
+                   let fb = self.router.fallbackRoute(for: host) {
+                    PXVRLogger.info("[proxy] 主路由失败，回退 \(fb.address)")
+                    self.fetch(conn: conn, target: target, method: method, body: body,
+                               contentType: contentType, route: fb, allowFallback: false)
+                    return
+                }
                 PXVRLogger.warning("[proxy] 抓取失败: \(e.localizedDescription)")
                 self.respond(conn, status: 502, reason: "Bad Gateway", mime: "text/plain",
                              body: Data("upstream: \(e.localizedDescription)".utf8))
@@ -192,8 +202,6 @@ final class PXVRProxyServer {
             let http = resp as? HTTPURLResponse
             let mime = http?.mimeType ?? "application/octet-stream"
             var payload = data ?? Data()
-
-            // HTML / CSS 里的链接改写成本地代理形式
             if mime.contains("html") || mime.contains("css") {
                 if let text = String(data: payload, encoding: .utf8) {
                     payload = Data(Self.rewrite(text, base: target).utf8)
@@ -201,7 +209,6 @@ final class PXVRProxyServer {
             }
             self.respond(conn, status: http?.statusCode ?? 200, reason: "OK", mime: mime, body: payload)
         }.resume()
-    }
 
     // MARK: - 输出
 

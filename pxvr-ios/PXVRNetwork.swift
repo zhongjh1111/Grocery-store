@@ -72,6 +72,12 @@ final class PXVRNetwork {
                 PXVRLogger.warning("\(path) 响应非 UTF-8 文本")
                 return nil
             }
+            // 有些端点直接回明文 JSON（实测 /um 登录成功返回 {"r":0}，失败 {"r":1}），
+            // 没有 s/..\ 信封，强行解密会报「hex 非法」。
+            if raw.hasPrefix("{"), let d = raw.data(using: .utf8),
+               let obj = try? JSONSerialization.jsonObject(with: d) as? [String: Any] {
+                return obj
+            }
             // 剥离 s/<hex>\ 信封（Android 端），取不到则原样当 hex（防御其它端点）。
             let hex = Self.extractEnvelopeHex(raw) ?? raw
             guard let resp = PXVRProtocol.shared.decodeJSON(hex) else {

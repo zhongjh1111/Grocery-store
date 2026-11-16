@@ -44,6 +44,8 @@ final class PXVRRouter {
     private(set) var patterns: [(NSRegularExpression, Route)] = []
     /// 节点组：#ht / #pxf → 首个端点
     private(set) var groups: [String: Route] = [:]
+    /// 后备路由（ralt 表）：主路由失败时改走这里
+    private(set) var fallback: [String: Route] = [:]
 
     /// 用 /xc 下发的配置重建
     func load(_ config: [String: Any]) {
@@ -58,6 +60,21 @@ final class PXVRRouter {
                 if let r = Self.parseEndpoint(parts[1]) {
                     groups[parts[0]] = r
                 }
+            }
+        }
+
+        // ①.5 后备路由 ralt*：`<组> <主机> <模式> <标志>`
+        // 例：ralt0 = pixiv www.pixiv.net #pxf 1
+        // 含义：www.pixiv.net 首选 #cf（直连），失败时改走 #pxf 节点
+        if let n = intValue(config["ralt"]) {
+            for i in 0..<n {
+                guard let line = config["ralt\(i)"] as? String else { continue }
+                let parts = line.split(separator: " ").map(String.init)
+                guard parts.count >= 3 else { continue }
+                let host = parts[1]
+                let mode = parts[2]
+                guard let r = groups[mode] else { continue }
+                fallback[host] = r
             }
         }
 
@@ -102,6 +119,11 @@ final class PXVRRouter {
             return r
         }
         return nil
+    }
+
+    /// 主路由失败时的后备；nil 表示没有
+    func fallbackRoute(for host: String) -> Route? {
+        fallback[host]
     }
 
     // MARK: - 解析
