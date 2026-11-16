@@ -158,7 +158,7 @@ final class PXVRProxyServer {
             comps.host = route.host
             comps.port = route.port
             comps.path = target.path.isEmpty ? "/" : target.path
-            comps.percentEncodedQuery = target.percentEncodedQuery
+            comps.percentEncodedQuery = URLComponents(url: target, resolvingAgainstBaseURL: false)?.percentEncodedQuery
             if let u = comps.url {
                 upstreamURL = u
             }
