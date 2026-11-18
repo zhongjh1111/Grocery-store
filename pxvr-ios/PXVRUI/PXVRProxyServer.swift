@@ -150,9 +150,16 @@ final class PXVRProxyServer {
         PXVRLogger.info("[proxy] \(method) \(target.absoluteString.prefix(120))")
 
         // 按路由表走：命中节点就转发，否则直连；直连失败按 ralt 表回退
+        // 没有主路由（如 #cf 直连）就直接用备路由，省掉一次必然失败的直连等待
+        let host = target.host ?? ""
+        let primary = router.route(for: host)
+        let initial = primary ?? router.fallbackRoute(for: host)
+        if primary == nil, let fb = initial {
+            PXVRLogger.info("[proxy] 无主路由，直接用备路由 \(fb.address)")
+        }
         fetch(conn: conn, target: target, method: method, body: body,
-              contentType: headers["Content-Type"], route: router.route(for: target.host ?? ""),
-              allowFallback: true)
+              contentType: headers["Content-Type"], route: initial,
+              allowFallback: primary != nil)
     }
 
     /// 对应原版 lj0.c()：URL 换成节点地址，Host 保留原站，另加鉴权头
