@@ -178,13 +178,22 @@ final class PXVRNetwork {
             PXVRLogger.warning("/um 需要先完成 /xk")
             return nil
         }
-        var payload: [String: Any] = ["a": action, "m": email]
-        if action == "l" { payload["p"] = password }
-        if let ic = inviteCode, !ic.isEmpty { payload["ic"] = ic }
+        // 实测：/um 的账号参数必须在 **query** 里，放加密体会被忽略（返回 {"r":1}）。
+        // 体只发空对象。
+        var items: [URLQueryItem] = [
+            URLQueryItem(name: "k", value: key),
+            URLQueryItem(name: "a", value: action),
+            URLQueryItem(name: "m", value: email),
+        ]
+        if action == "l" { items.append(URLQueryItem(name: "p", value: password)) }
+        if let ic = inviteCode, !ic.isEmpty { items.append(URLQueryItem(name: "ic", value: ic)) }
 
-        let path = "/um?k=\(key)"
-        PXVRLogger.info("提交登录 → \(path)")
-        let resp = await callAPI(baseURL: baseURL, path: path, payload: payload)
+        var comps = URLComponents()
+        comps.path = "/um"
+        comps.queryItems = items
+        let path = comps.string ?? "/um?k=\(key)"
+        PXVRLogger.info("提交登录 → \(path.prefix(60))")
+        let resp = await callAPI(baseURL: baseURL, path: path, payload: [:])
         PXVRLogger.info("/um 响应: \(String(describing: resp))")
         return resp
     }
