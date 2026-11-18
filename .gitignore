@@ -30,3 +30,6 @@ pxvr.p12
 
 # 密钥文件（CI 注入，不入库）
 pxvr-ios/PXVR/Resources/PXVRKeys.json
+
+# 签名材料不入库
+signing/
