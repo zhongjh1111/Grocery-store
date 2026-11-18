@@ -176,21 +176,24 @@ final class WebController: NSObject, ObservableObject {
         Task {
             let resp = await PXVRNetwork.shared.login(
                 baseURL: base, email: email, password: password, action: action)
+            guard let r = resp else {
+                await MainActor.run { self.append("[login] 失败（见上方 /um 响应）") }
+                return
+            }
+            // r=0 才是成功；r=1 是服务器拒绝
+            let code = (r["r"] as? Int) ?? (r["r"] as? String).flatMap(Int.init) ?? -1
+            guard code == 0 else {
+                await MainActor.run { self.append("[login] 服务器返回 r=\(code)，登录失败") }
+                return
+            }
             await MainActor.run {
-                guard let r = resp else {
-                    self.append("[login] 失败（见上方 /um 响应）")
-                    return
-                }
-                // r=0 才是成功；r=1 是服务器拒绝
-                let code = (r["r"] as? Int) ?? (r["r"] as? String).flatMap(Int.init) ?? -1
-                guard code == 0 else {
-                    self.append("[login] 服务器返回 r=\(code)，登录失败")
-                    return
-                }
                 self.append("[login] 登录成功")
                 self.isLoggedIn = true
-                // 登录后再拉一次 /xc：完整配置（含 pixiv 全部主机 + ralt）只有登录后才下发
-                if let cfg = await PXVRNetwork.shared.performXC(baseURL: base) {
+            }
+            // 登录后再拉一次 /xc：完整配置（含 pixiv 全部主机 + ralt）只有登录后才下发。
+            // await 必须在 MainActor.run 之外，否则闭包是同步的，编译不过。
+            if let cfg = await PXVRNetwork.shared.performXC(baseURL: base) {
+                await MainActor.run {
                     PXVRProxyServer.shared.loadConfig(cfg)
                     self.append("[proxy] 登录后配置刷新：\(cfg.count) 字段，ph=\(cfg["ph"] ?? "?")，ralt=\(cfg["ralt"] ?? "?")")
                 }

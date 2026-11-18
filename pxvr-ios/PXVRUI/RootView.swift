@@ -67,9 +67,20 @@ struct RootView: View {
     @State private var isRegister = false
     @State private var showMenu = false
     @State private var showLogs = false
-    @State private var showSheet = false
-    @State private var exportURL: URL?
-    @State private var showExport = false
+    @State private var activeSheet: ActiveSheet?
+
+    /// 同一个 View 只能挂一个 .sheet，多个会互相覆盖（之前的 bug）
+    private enum ActiveSheet: Identifiable {
+        case settings
+        case export(URL)
+
+        var id: String {
+            switch self {
+            case .settings: return "settings"
+            case .export(let u): return "export-\(u.absoluteString)"
+            }
+        }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -82,13 +93,15 @@ struct RootView: View {
             Button("刷新") { controller.reload() }
             Button("后退") { controller.goBack() }
             Button("前进") { controller.goForward() }
-            Button("地址与服务器…") { showSheet = true }
+            Button("地址与服务器…") { activeSheet = .settings }
             Button(showLogs ? "隐藏日志" : "显示日志") { showLogs.toggle() }
             Button("取消", role: .cancel) {}
         }
-        .sheet(isPresented: $showSheet) { sheet }
-        .sheet(isPresented: $showExport) {
-            if let u = exportURL { ActivityView(activityItems: [u]) }
+        .sheet(item: $activeSheet) { item in
+            switch item {
+            case .settings: sheet
+            case .export(let u): ActivityView(activityItems: [u])
+            }
         }
         .onAppear {
             PXVRProxyServer.shared.start()
@@ -149,8 +162,7 @@ struct RootView: View {
                     .font(.system(size: 11))
                     .foregroundColor(PXVRTheme.link(scheme))
                 Button("导出") {
-                    exportURL = controller.exportLogURL()
-                    showExport = true
+                    if let u = controller.exportLogURL() { activeSheet = .export(u) }
                 }
                     .font(.system(size: 11))
                     .foregroundColor(PXVRTheme.link(scheme))
@@ -201,7 +213,7 @@ struct RootView: View {
                         .keyboardType(.URL)
 
                     Button {
-                        showSheet = false
+                        activeSheet = nil
                         controller.connect(server: server)
                     } label: {
                         HStack {
@@ -245,7 +257,7 @@ struct RootView: View {
 
                 Section {
                     Button("打开页面地址") {
-                        showSheet = false
+                        activeSheet = nil
                         controller.load(address)
                     }
                 }
@@ -254,7 +266,7 @@ struct RootView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("关闭") { showSheet = false }
+                    Button("关闭") { activeSheet = nil }
                 }
             }
         }
