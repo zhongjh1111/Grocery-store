@@ -158,50 +158,94 @@ final class PXVRProxyServer {
             PXVRLogger.info("[proxy] 无主路由，直接用备路由 \(fb.address)")
         }
         fetch(conn: conn, target: target, method: method, body: body,
-              contentType: headers["Content-Type"], route: initial,
+              clientHeaders: headers, route: initial,
               allowFallback: primary != nil)
     }
 
-    /// 对应原版 lj0.c()：URL 换成节点地址，Host 保留原站，另加鉴权头
+    /// 对应原版 lj0.c()：连节点、Host 留原站、加鉴权头。
+    /// 走手写 HTTP/1.1（PXVRRawHTTP）：URLSession 会协商成 h2，
+    /// 而 h2 用 :authority 表达主机，Host 头不参与路由 → 节点 302 死循环。
     private func fetch(conn: NWConnection, target: URL, method: String, body: Data,
-                       contentType: String?, route: PXVRRouter.Route?, allowFallback: Bool) {
-        var upstreamURL = target
-        if let r = route {
-            var comps = URLComponents()
-            comps.scheme = "https"
-            comps.host = r.host
-            comps.port = r.port
-            comps.path = target.path.isEmpty ? "/" : target.path
-            comps.percentEncodedQuery = URLComponents(url: target, resolvingAgainstBaseURL: false)?.percentEncodedQuery
-            if let u = comps.url { upstreamURL = u }
+                       clientHeaders: [String: String], route: PXVRRouter.Route?,
+                       allowFallback: Bool) {
+        guard let r = route else {
+            fetchDirect(conn: conn, target: target, method: method, body: body,
+                        contentType: clientHeaders["Content-Type"], allowFallback: allowFallback)
+            return
         }
 
-        var req = URLRequest(url: upstreamURL)
-        req.httpMethod = method
-        req.httpShouldHandleCookies = true
-        req.setValue(Self.browserUA, forHTTPHeaderField: "User-Agent")
-        if let r = route, let host = target.host {
-            // Host 始终是原站，节点靠它知道转发到哪
-            req.setValue(host, forHTTPHeaderField: "Host")
-            if let name = r.headerName, let value = r.headerValue {
-                req.setValue(value, forHTTPHeaderField: name)
-            }
-            PXVRLogger.info("[proxy] 路由 \(host) → \(r.address)  (\(r.headerName ?? "直连IP"))")
+        let host = target.host ?? r.host
+        var path = target.path.isEmpty ? "/" : target.path
+        if let q = URLComponents(url: target, resolvingAgainstBaseURL: false)?.percentEncodedQuery,
+           !q.isEmpty {
+            path += "?" + q
         }
+
+        var hdrs: [String: String] = [
+            "Host": host,
+            "User-Agent": Self.browserUA,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Accept-Language": "ja,en;q=0.9",
+            "Accept-Encoding": "identity",
+            "Connection": "close",
+        ]
+        if let n = r.headerName, let v = r.headerValue { hdrs[n] = v }
+        if let ct = clientHeaders["Content-Type"] { hdrs["Content-Type"] = ct }
+        if let ck = clientHeaders["Cookie"] { hdrs["Cookie"] = ck }
+        if let rf = clientHeaders["Referer"] { hdrs["Referer"] = rf }
+
+        PXVRLogger.info("[proxy] 路由 \(host) → \(r.address)  (\(r.headerName ?? "直连IP"))")
+
+        Task {
+            do {
+                let resp = try await PXVRRawHTTP.request(
+                    host: r.host, port: UInt16(r.port), method: method, path: path,
+                    headers: hdrs,
+                    body: (method == "GET" || method == "HEAD") ? nil : body)
+
+                PXVRLogger.info("[proxy] ← \(resp.status)  \(resp.body.count) 字节  \(host)\(path.prefix(30))")
+
+                let mime = resp.headers["content-type"] ?? "application/octet-stream"
+                var payload = resp.body
+                if mime.contains("html") || mime.contains("css") {
+                    if let text = String(data: payload, encoding: .utf8) {
+                        payload = Data(Self.rewrite(text, base: target).utf8)
+                    }
+                }
+                self.respond(conn, status: resp.status,
+                             reason: resp.status == 200 ? "OK" : "Status",
+                             mime: mime, body: payload)
+            } catch {
+                if allowFallback, let h = target.host, let fb = self.router.fallbackRoute(for: h) {
+                    PXVRLogger.info("[proxy] 主路由失败，回退 \(fb.address)")
+                    self.fetch(conn: conn, target: target, method: method, body: body,
+                               clientHeaders: clientHeaders, route: fb, allowFallback: false)
+                    return
+                }
+                PXVRLogger.warning("[proxy] 抓取失败: \(error.localizedDescription)")
+                self.respond(conn, status: 502, reason: "Bad Gateway", mime: "text/plain",
+                             body: Data("upstream: \(error.localizedDescription)".utf8))
+            }
+        }
+    }
+
+    /// 没有路由时的直连（用 URLSession 就够）
+    private func fetchDirect(conn: NWConnection, target: URL, method: String, body: Data,
+                             contentType: String?, allowFallback: Bool) {
+        var req = URLRequest(url: target)
+        req.httpMethod = method
+        req.setValue(Self.browserUA, forHTTPHeaderField: "User-Agent")
         if method != "GET" && method != "HEAD" {
             req.httpBody = body
             if let ct = contentType { req.setValue(ct, forHTTPHeaderField: "Content-Type") }
         }
-
         session.dataTask(with: req) { [weak self] data, resp, err in
             guard let self = self else { return }
             if let e = err {
-                // 直连失败时按 ralt 表改走节点（原版同样有此回退）
-                if allowFallback, let host = target.host,
-                   let fb = self.router.fallbackRoute(for: host) {
-                    PXVRLogger.info("[proxy] 主路由失败，回退 \(fb.address)")
+                if allowFallback, let h = target.host, let fb = self.router.fallbackRoute(for: h) {
+                    PXVRLogger.info("[proxy] 直连失败，回退 \(fb.address)")
                     self.fetch(conn: conn, target: target, method: method, body: body,
-                               contentType: contentType, route: fb, allowFallback: false)
+                               clientHeaders: [:], route: fb, allowFallback: false)
                     return
                 }
                 PXVRLogger.warning("[proxy] 抓取失败: \(e.localizedDescription)")
