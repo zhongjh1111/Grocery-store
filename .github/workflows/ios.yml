@@ -105,8 +105,9 @@ jobs:
 
   # ---- 打包未签名 ipa（越狱机 + AppSync 直接装）----
   build-ipa:
-    runs-on: macos-15
-    needs: build-and-test
+    # 换 macos-14：macos-15 池近期频繁出现「分配不到 runner、15 分钟后被取消」
+    runs-on: macos-14
+    # 去掉 needs: build-and-test —— 测试任务被取消时也要能出包
     timeout-minutes: 25
     env:
       PXVR_P12_B64: ${{ secrets.PXVR_P12_B64 }}
