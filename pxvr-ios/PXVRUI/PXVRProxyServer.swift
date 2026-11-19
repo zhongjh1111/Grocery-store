@@ -313,4 +313,32 @@ private final class PermissiveDelegate: NSObject, URLSessionDelegate {
             completionHandler(.performDefaultHandling, nil)
         }
     }
+
+    /// 重定向时：打印目标 + 保住 Host / X-pxb 头，且 URL 仍指向节点。
+    /// URLSession 转发重定向会丢掉自定义头，导致节点看不懂、反复 302。
+    func urlSession(_ session: URLSession,
+                    task: URLSessionTask,
+                    willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest,
+                    completionHandler: @escaping (URLRequest?) -> Void) {
+        PXVRLogger.info("[proxy] 重定向 \(response.statusCode) → \(request.url?.absoluteString.prefix(100) ?? "-")")
+        var new = request
+        if let orig = task.originalRequest {
+            if let h = orig.value(forHTTPHeaderField: "Host") {
+                new.setValue(h, forHTTPHeaderField: "Host")
+            }
+            for (k, v) in (orig.allHTTPHeaderFields ?? [:]) where k.lowercased().hasPrefix("x-px") {
+                new.setValue(v, forHTTPHeaderField: k)
+            }
+            if let o = orig.url,
+               let ou = URLComponents(url: o, resolvingAgainstBaseURL: false),
+               var nu = URLComponents(url: new.url ?? o, resolvingAgainstBaseURL: false) {
+                nu.scheme = ou.scheme
+                nu.host = ou.host
+                nu.port = ou.port
+                if let fixed = nu.url { new.url = fixed }
+            }
+        }
+        completionHandler(new)
+    }
 }

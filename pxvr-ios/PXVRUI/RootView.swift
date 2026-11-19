@@ -61,8 +61,8 @@ struct RootView: View {
 
     @State private var address = "https://www.pixiv.net"
     @State private var server = ""
-    @State private var email = ""
-    @State private var password = ""
+    @State private var email = PXVRKeychain.load().email
+    @State private var password = PXVRKeychain.load().password
     @State private var invite = ""
     @State private var isRegister = false
     @State private var showMenu = false
@@ -247,6 +247,7 @@ struct RootView: View {
                     Toggle("注册新账号", isOn: $isRegister)
 
                     Button {
+                        PXVRKeychain.save(email: email, password: password)
                         controller.login(email: email, password: password,
                                          action: isRegister ? "r" : "l")
                     } label: {
