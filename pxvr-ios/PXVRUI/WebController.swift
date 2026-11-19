@@ -201,6 +201,26 @@ final class WebController: NSObject, ObservableObject {
         }
     }
 
+    /// 退出登录（原版：退出后清本地账号状态，不影响会员时长）
+    func logout() {
+        isLoggedIn = false
+        PXVRKeychain.clear()
+        append("[login] 已退出登录")
+    }
+
+    /// 桌面版 / 移动版切换
+    func toggleDesktopMode() {
+        let ua = webView.customUserAgent
+        if ua == nil || !ua!.contains("Macintosh") {
+            webView.customUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
+            append("[web] 已切换桌面版")
+        } else {
+            webView.customUserAgent = nil
+            append("[web] 已切换移动版")
+        }
+        webView.reload()
+    }
+
     func goBack() { if webView.canGoBack { webView.goBack() } }
     func goForward() { if webView.canGoForward { webView.goForward() } }
     func reload() { webView.reload() }

@@ -2,13 +2,16 @@
 //  RootView.swift
 //  PXVRUI
 //
-//  按原版观感重做：顶部 colorPrimary 色 Toolbar + WebView + 下拉刷新，
-//  功能收进右上角菜单，日志默认隐藏。
+//  主界面骨架。参照原版：
+//    顶部栏（后退 / 前进 / 标题 / 刷新 / 主菜单）
+//    WebView 内容区
+//    右上角「主菜单」→ 我的大会员 / 下载 / 设置…
+//  下拉刷新沿用 UIRefreshControl，与原版一致。
 //
 
 import SwiftUI
-import UIKit
 import WebKit
+import UIKit
 
 // MARK: - WebView 包装（带下拉刷新）
 
@@ -18,7 +21,7 @@ struct WebViewContainer: UIViewRepresentable {
     func makeUIView(context: Context) -> WKWebView {
         let wv = controller.webView!
         let refresh = UIRefreshControl()
-        refresh.tintColor = .white
+        refresh.tintColor = UIColor(PXVRTheme.accent)
         refresh.addTarget(context.coordinator,
                           action: #selector(Coordinator.onRefresh),
                           for: .valueChanged)
@@ -60,115 +63,138 @@ struct RootView: View {
     @StateObject private var controller = WebController()
 
     @State private var address = "https://www.pixiv.net"
-    @State private var server = ""
-    @State private var email = PXVRKeychain.load().email
-    @State private var password = PXVRKeychain.load().password
-    @State private var invite = ""
-    @State private var isRegister = false
     @State private var showMenu = false
+    @State private var showMember = false
     @State private var showLogs = false
-    @State private var activeSheet: ActiveSheet?
-
-    /// 同一个 View 只能挂一个 .sheet，多个会互相覆盖（之前的 bug）
-    private enum ActiveSheet: Identifiable {
-        case settings
-        case export(URL)
-
-        var id: String {
-            switch self {
-            case .settings: return "settings"
-            case .export(let u): return "export-\(u.absoluteString)"
-            }
-        }
-    }
+    @State private var showAddressBar = false
+    @State private var exportURL: URL?
+    @State private var showExport = false
 
     var body: some View {
         VStack(spacing: 0) {
-            toolbar
+            topBar
+            if showAddressBar { addressBar }
             WebViewContainer(controller: controller)
             if showLogs { logPanel }
         }
-        .background(PXVRTheme.background(scheme))
-        .confirmationDialog("选项", isPresented: $showMenu, titleVisibility: .hidden) {
-            Button("刷新") { controller.reload() }
-            Button("后退") { controller.goBack() }
-            Button("前进") { controller.goForward() }
-            Button("地址与服务器…") { activeSheet = .settings }
-            Button(showLogs ? "隐藏日志" : "显示日志") { showLogs.toggle() }
-            Button("取消", role: .cancel) {}
+        .background(PXVRTheme.bg(scheme).ignoresSafeArea())
+        .sheet(isPresented: $showMenu) {
+            PXVRMenuView(
+                onMember: { showMember = true },
+                onReload: { controller.reload() },
+                onToggleDesktop: { controller.toggleDesktopMode() },
+                onExportLog: { exportURL = controller.exportLogURL(); showExport = true }
+            )
         }
-        .sheet(item: $activeSheet) { item in
-            switch item {
-            case .settings: sheet
-            case .export(let u): ActivityView(activityItems: [u])
-            }
+        .sheet(isPresented: $showMember) {
+            PXVRMemberView(controller: controller)
+        }
+        .sheet(isPresented: $showExport) {
+            if let u = exportURL { ActivityView(activityItems: [u]) }
         }
         .onAppear {
             PXVRProxyServer.shared.start()
             controller.load(address)
         }
-        .onChange(of: controller.currentURL) { newValue in
-            if !newValue.isEmpty { address = newValue }
-        }
     }
 
     // MARK: 顶部栏
 
-    private var toolbar: some View {
-        HStack(spacing: 18) {
-            Text(controller.pageTitle.isEmpty ? "PXVR" : controller.pageTitle)
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundColor(PXVRTheme.barTitle(scheme))
-                .lineLimit(1)
-                .truncationMode(.tail)
-
-            Spacer(minLength: 8)
-
-            if controller.isLoading {
-                ProgressView()
-                    .scaleEffect(0.7)
-                    .tint(PXVRTheme.barTitle(scheme))
+    private var topBar: some View {
+        HStack(spacing: 16) {
+            Button { controller.goBack() } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundColor(controller.canGoBack ? PXVRTheme.text(scheme) : PXVRTheme.sub(scheme))
             }
+            .disabled(!controller.canGoBack)
+
+            Button { controller.goForward() } label: {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundColor(controller.canGoForward ? PXVRTheme.text(scheme) : PXVRTheme.sub(scheme))
+            }
+            .disabled(!controller.canGoForward)
+
+            Button { showAddressBar.toggle() } label: {
+                Text(controller.pageTitle.isEmpty ? "PXVR" : controller.pageTitle)
+                    .font(.system(size: 14, weight: .medium))
+                    .lineLimit(1)
+                    .foregroundColor(PXVRTheme.text(scheme))
+            }
+
+            Spacer()
 
             Button { controller.reload() } label: {
                 Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(PXVRTheme.barTitle(scheme))
+                    .font(.system(size: 16))
+                    .foregroundColor(PXVRTheme.text(scheme))
             }
 
             Button { showMenu = true } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundColor(PXVRTheme.barTitle(scheme))
+                Image(systemName: "line.3.horizontal")
+                    .font(.system(size: 17))
+                    .foregroundColor(PXVRTheme.text(scheme))
             }
         }
         .padding(.horizontal, 16)
-        .frame(height: 48)
-        .background(
-            PXVRTheme.primary(scheme).ignoresSafeArea(edges: .top)
-        )
+        .padding(.vertical, 10)
+        .background(PXVRTheme.bg(scheme))
     }
 
-    // MARK: 日志
+    // MARK: 地址栏
+
+    private var addressBar: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Image(systemName: "globe")
+                    .font(.system(size: 13))
+                    .foregroundColor(PXVRTheme.sub(scheme))
+                TextField("https://www.pixiv.net", text: $address)
+                    .font(.system(size: 13))
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .keyboardType(.URL)
+                    .onSubmit { controller.load(address) }
+                Button("连接") { controller.connect(server: "") }
+                    .font(.system(size: 13))
+                    .foregroundColor(PXVRTheme.accent)
+                Button {
+                    showLogs.toggle()
+                } label: {
+                    Image(systemName: "doc.text")
+                        .font(.system(size: 13))
+                        .foregroundColor(PXVRTheme.sub(scheme))
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            Divider().background(PXVRTheme.line(scheme))
+        }
+        .background(PXVRTheme.card(scheme))
+    }
+
+    // MARK: 日志面板
 
     private var logPanel: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text("日志")
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(PXVRTheme.text(scheme))
+                    .foregroundColor(PXVRTheme.sub(scheme))
                 Spacer()
                 Button("复制") { UIPasteboard.general.string = controller.logText }
                     .font(.system(size: 11))
-                    .foregroundColor(PXVRTheme.link(scheme))
+                    .foregroundColor(PXVRTheme.accent)
                 Button("导出") {
-                    if let u = controller.exportLogURL() { activeSheet = .export(u) }
+                    exportURL = controller.exportLogURL()
+                    showExport = true
                 }
-                    .font(.system(size: 11))
-                    .foregroundColor(PXVRTheme.link(scheme))
+                .font(.system(size: 11))
+                .foregroundColor(PXVRTheme.accent)
                 Button("清空") { controller.clearLogs() }
                     .font(.system(size: 11))
-                    .foregroundColor(PXVRTheme.link(scheme))
+                    .foregroundColor(PXVRTheme.accent)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
@@ -186,94 +212,11 @@ struct RootView: View {
                 .padding(.horizontal, 12)
                 .padding(.bottom, 8)
             }
-            .frame(height: 150)
+            .frame(height: 140)
         }
         .background(PXVRTheme.card(scheme))
     }
-
-    // MARK: 地址 / 服务器
-
-    private var sheet: some View {
-        NavigationView {
-            Form {
-                Section(header: Text("页面地址")) {
-                    TextField("https://", text: $address)
-                        .autocapitalization(.none)
-                        .disableAutocorrection(true)
-                        .keyboardType(.URL)
-                }
-
-                Section(
-                    header: Text("服务器"),
-                    footer: Text("留空则按内置服务器列表逐个尝试；填入则只用该地址。")
-                ) {
-                    TextField("https://", text: $server)
-                        .autocapitalization(.none)
-                        .disableAutocorrection(true)
-                        .keyboardType(.URL)
-
-                    Button {
-                        activeSheet = nil
-                        controller.connect(server: server)
-                    } label: {
-                        HStack {
-                            Text("连接")
-                            if controller.isConnecting {
-                                Spacer()
-                                ProgressView().scaleEffect(0.7)
-                            }
-                        }
-                    }
-                    .disabled(controller.isConnecting)
-                }
-
-                Section(
-                    header: Text("账号"),
-                    footer: Text(controller.isLoggedIn ? "已登录" : "先点上面「连接」拿到设备 key，再登录。")
-                ) {
-                    TextField("邮箱", text: $email)
-                        .autocapitalization(.none)
-                        .disableAutocorrection(true)
-                        .keyboardType(.emailAddress)
-
-                    SecureField("密码", text: $password)
-
-                    if isRegister {
-                        TextField("邀请码", text: $invite)
-                            .autocapitalization(.none)
-                            .disableAutocorrection(true)
-                    }
-
-                    Toggle("注册新账号", isOn: $isRegister)
-
-                    Button {
-                        PXVRKeychain.save(email: email, password: password)
-                        controller.login(email: email, password: password,
-                                         action: isRegister ? "r" : "l")
-                    } label: {
-                        Text(controller.isLoggedIn ? "已登录" : (isRegister ? "注册" : "登录"))
-                    }
-                    .disabled(controller.isLoggedIn || email.isEmpty || password.isEmpty)
-                }
-
-                Section {
-                    Button("打开页面地址") {
-                        activeSheet = nil
-                        controller.load(address)
-                    }
-                }
-            }
-            .navigationTitle("地址与服务器")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("关闭") { activeSheet = nil }
-                }
-            }
-        }
-    }
 }
-
 
 // MARK: - 分享
 
