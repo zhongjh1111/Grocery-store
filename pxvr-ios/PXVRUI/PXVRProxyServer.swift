@@ -149,30 +149,24 @@ final class PXVRProxyServer {
 
         PXVRLogger.info("[proxy] \(method) \(target.absoluteString.prefix(120))")
 
-        // 按路由表走：命中节点就转发，否则直连；直连失败按 ralt 表回退
-        // 没有主路由（如 #cf 直连）就直接用备路由，省掉一次必然失败的直连等待
-        let host = target.host ?? ""
-        let primary = router.route(for: host)
-        let initial = primary ?? router.fallbackRoute(for: host)
-        if primary == nil, let fb = initial {
-            PXVRLogger.info("[proxy] 无主路由，直接用备路由 \(fb.address)")
-        }
+        // 回退链：主路由 → ralt → #ht
+        let chain = router.chain(for: target.host ?? "")
+        PXVRLogger.info("[proxy] 路由链 \(chain.map(\.address).joined(separator: " → "))")
         fetch(conn: conn, target: target, method: method, body: body,
-              clientHeaders: headers, route: initial,
-              allowFallback: primary != nil)
+              clientHeaders: headers, routes: chain)
     }
 
     /// 对应原版 lj0.c()：连节点、Host 留原站、加鉴权头。
     /// 走手写 HTTP/1.1（PXVRRawHTTP）：URLSession 会协商成 h2，
     /// 而 h2 用 :authority 表达主机，Host 头不参与路由 → 节点 302 死循环。
     private func fetch(conn: NWConnection, target: URL, method: String, body: Data,
-                       clientHeaders: [String: String], route: PXVRRouter.Route?,
-                       allowFallback: Bool) {
-        guard let r = route else {
+                       clientHeaders: [String: String], routes: [PXVRRouter.Route]) {
+        guard let r = routes.first else {
             fetchDirect(conn: conn, target: target, method: method, body: body,
-                        contentType: clientHeaders["Content-Type"], allowFallback: allowFallback)
+                        contentType: clientHeaders["Content-Type"], allowFallback: false)
             return
         }
+        let rest = Array(routes.dropFirst())
 
         let host = target.host ?? r.host
         var path = target.path.isEmpty ? "/" : target.path
@@ -205,6 +199,20 @@ final class PXVRProxyServer {
 
                 PXVRLogger.info("[proxy] ← \(resp.status)  \(resp.body.count) 字节  \(host)\(path.prefix(30))")
 
+                // 302/4xx/5xx 说明这个节点不通（鉴权失败也是 302），换下一个
+                if resp.status >= 300 {
+                    if !rest.isEmpty {
+                        PXVRLogger.info("[proxy] \(r.address) 返回 \(resp.status)，换下一个 → \(rest[0].address)")
+                        self.fetch(conn: conn, target: target, method: method, body: body,
+                                   clientHeaders: clientHeaders, routes: rest)
+                        return
+                    }
+                    PXVRLogger.warning("[proxy] 所有节点都失败，最后一个状态 \(resp.status)")
+                    self.respond(conn, status: 502, reason: "Bad Gateway", mime: "text/plain",
+                                 body: Data("upstream: all routes failed (\(resp.status))".utf8))
+                    return
+                }
+
                 let mime = resp.headers["content-type"] ?? "application/octet-stream"
                 var payload = resp.body
                 if mime.contains("html") || mime.contains("css") {
@@ -216,10 +224,10 @@ final class PXVRProxyServer {
                              reason: resp.status == 200 ? "OK" : "Status",
                              mime: mime, body: payload)
             } catch {
-                if allowFallback, let h = target.host, let fb = self.router.fallbackRoute(for: h) {
-                    PXVRLogger.info("[proxy] 主路由失败，回退 \(fb.address)")
+                if !rest.isEmpty {
+                    PXVRLogger.info("[proxy] \(r.address) 失败，换下一个 → \(rest[0].address)")
                     self.fetch(conn: conn, target: target, method: method, body: body,
-                               clientHeaders: clientHeaders, route: fb, allowFallback: false)
+                               clientHeaders: clientHeaders, routes: rest)
                     return
                 }
                 PXVRLogger.warning("[proxy] 抓取失败: \(error.localizedDescription)")
@@ -245,7 +253,7 @@ final class PXVRProxyServer {
                 if allowFallback, let h = target.host, let fb = self.router.fallbackRoute(for: h) {
                     PXVRLogger.info("[proxy] 直连失败，回退 \(fb.address)")
                     self.fetch(conn: conn, target: target, method: method, body: body,
-                               clientHeaders: [:], route: fb, allowFallback: false)
+                               clientHeaders: [:], routes: [fb])
                     return
                 }
                 PXVRLogger.warning("[proxy] 抓取失败: \(e.localizedDescription)")

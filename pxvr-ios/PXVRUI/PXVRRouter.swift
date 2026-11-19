@@ -129,6 +129,21 @@ final class PXVRRouter {
         fallback[host]
     }
 
+    /// 回退链：主路由 → ralt → #ht 组。
+    /// 实测 #pxf 下发的裸 token 会被节点拒绝（302 → errors-auth.html），
+    /// 而 #ht 的 X-pxk 一直可用，所以把 #ht 作为最后兜底。
+    func chain(for host: String) -> [Route] {
+        var out: [Route] = []
+        func add(_ r: Route?) {
+            guard let r = r else { return }
+            if !out.contains(where: { $0.address == r.address }) { out.append(r) }
+        }
+        add(route(for: host))
+        add(fallback[host])
+        add(groups["#ht"])
+        return out
+    }
+
     // MARK: - 解析
 
     /// "58.246.149.105:50242/X-pxb:token" 或裸 "210.140.139.151" → Route
