@@ -2,11 +2,10 @@
 //  RootView.swift
 //  PXVRUI
 //
-//  主界面骨架。参照原版：
-//    顶部栏（后退 / 前进 / 标题 / 刷新 / 主菜单）
-//    WebView 内容区
-//    右上角「主菜单」→ 我的大会员 / 下载 / 设置…
-//  下拉刷新沿用 UIRefreshControl，与原版一致。
+//  主界面——照原版实测还原：
+//    状态栏 / 工具栏同色（colorPrimary #0096FA），左侧白色标题（= 网页标题），
+//    右侧单一个 ⋮ 打开溢出菜单；WebView 占满；右下角半透明「回到顶部」圆钮。
+//    菜单是贴右上角的浮层（非 sheet），二级结构。
 //
 
 import SwiftUI
@@ -21,7 +20,7 @@ struct WebViewContainer: UIViewRepresentable {
     func makeUIView(context: Context) -> WKWebView {
         let wv = controller.webView!
         let refresh = UIRefreshControl()
-        refresh.tintColor = UIColor(PXVRUITheme.accent)
+        refresh.tintColor = .white
         refresh.addTarget(context.coordinator,
                           action: #selector(Coordinator.onRefresh),
                           for: .valueChanged)
@@ -44,9 +43,7 @@ struct WebViewContainer: UIViewRepresentable {
             self.controller = controller
         }
 
-        @objc func onRefresh() {
-            controller.reload()
-        }
+        @objc func onRefresh() { controller.reload() }
 
         func endRefreshing() {
             guard let r = refresh, r.isRefreshing else { return }
@@ -59,33 +56,61 @@ struct WebViewContainer: UIViewRepresentable {
 
 struct RootView: View {
 
-    @Environment(\.colorScheme) private var scheme
     @StateObject private var controller = WebController()
 
     @State private var address = "https://www.pixiv.net"
-    @State private var showMenu = false
+    @State private var menuLevel: PXVRMenuOverlay.Level?
     @State private var showMember = false
+    @State private var showAddressInput = false
     @State private var showLogs = false
-    @State private var showAddressBar = false
+    @State private var nightMode = false
+    @State private var desktopMode = false
+    @State private var dataSync = true
+    @State private var restoreLast = false
     @State private var exportURL: URL?
     @State private var showExport = false
 
+    /// 原版 colorPrimary
+    private let barBlue = Color(hex: 0x0096FA)
+
     var body: some View {
-        VStack(spacing: 0) {
-            topBar
-            if showAddressBar { addressBar }
-            WebViewContainer(controller: controller)
-            if showLogs { logPanel }
-        }
-        .background(PXVRUITheme.bg(scheme).ignoresSafeArea())
-        .sheet(isPresented: $showMenu) {
-            PXVRMenuView(
-                onMember: { showMember = true },
-                onReload: { controller.reload() },
-                onToggleDesktop: { controller.toggleDesktopMode() },
-                onExportLog: { exportURL = controller.exportLogURL(); showExport = true },
-                onToggleLog: { showLogs.toggle() }
-            )
+        ZStack(alignment: .topTrailing) {
+            VStack(spacing: 0) {
+                appBar
+                WebViewContainer(controller: controller)
+                if showLogs { logPanel }
+            }
+
+            // 回到顶部
+            VStack {
+                Spacer()
+                HStack {
+                    Spacer()
+                    Button {
+                        controller.webView?.evaluateJavaScript("window.scrollTo({top:0,behavior:'smooth'})")
+                    } label: {
+                        Image(systemName: "arrow.up")
+                            .font(.system(size: 17, weight: .medium))
+                            .foregroundColor(.white)
+                            .frame(width: 46, height: 46)
+                            .background(Color.black.opacity(0.18))
+                            .clipShape(Circle())
+                    }
+                    .padding(.trailing, 14)
+                    .padding(.bottom, 18)
+                }
+            }
+
+            // 溢出菜单
+            if let level = menuLevel {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture { menuLevel = nil }
+                    .ignoresSafeArea()
+
+                menuOverlay(level: level)
+                    .padding(.top, 44)
+            }
         }
         .sheet(isPresented: $showMember) {
             PXVRMemberView(controller: controller)
@@ -93,116 +118,96 @@ struct RootView: View {
         .sheet(isPresented: $showExport) {
             if let u = exportURL { ActivityView(activityItems: [u]) }
         }
+        .alert("输入地址", isPresented: $showAddressInput) {
+            TextField("https://", text: $address)
+            Button("取消", role: .cancel) {}
+            Button("打开") { controller.load(address) }
+        }
         .onAppear {
             PXVRProxyServer.shared.start()
             controller.load(address)
         }
     }
 
-    // MARK: 顶部栏
+    // MARK: 工具栏
 
-    private var topBar: some View {
-        HStack(spacing: 16) {
-            Button { controller.goBack() } label: {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 17, weight: .medium))
-                    .foregroundColor(controller.canGoBack ? PXVRUITheme.text(scheme) : PXVRUITheme.sub(scheme))
-            }
-            .disabled(!controller.canGoBack)
-
-            Button { controller.goForward() } label: {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 17, weight: .medium))
-                    .foregroundColor(controller.canGoForward ? PXVRUITheme.text(scheme) : PXVRUITheme.sub(scheme))
-            }
-            .disabled(!controller.canGoForward)
-
-            Button { showAddressBar.toggle() } label: {
-                Text(controller.pageTitle.isEmpty ? "PXVR" : controller.pageTitle)
-                    .font(.system(size: 14, weight: .medium))
-                    .lineLimit(1)
-                    .foregroundColor(PXVRUITheme.text(scheme))
-            }
+    private var appBar: some View {
+        HStack {
+            Text(controller.pageTitle.isEmpty ? "pixiv" : controller.pageTitle)
+                .font(.system(size: 17, weight: .medium))
+                .foregroundColor(.white)
+                .lineLimit(1)
+                // 长按标题 → 显隐日志（原版没有日志面板，但调试需要）
+                .onLongPressGesture(minimumDuration: 0.6) { showLogs.toggle() }
 
             Spacer()
 
-            Button { controller.reload() } label: {
-                Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 16))
-                    .foregroundColor(PXVRUITheme.text(scheme))
-            }
-
-            // 日志常驻入口：一点就显隐，不藏在地址栏里
-            Button { showLogs.toggle() } label: {
-                Image(systemName: showLogs ? "terminal.fill" : "terminal")
-                    .font(.system(size: 16))
-                    .foregroundColor(showLogs ? PXVRUITheme.accent : PXVRUITheme.text(scheme))
-            }
-
-            Button { showMenu = true } label: {
-                Image(systemName: "line.3.horizontal")
-                    .font(.system(size: 17))
-                    .foregroundColor(PXVRUITheme.text(scheme))
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(PXVRUITheme.bg(scheme))
-    }
-
-    // MARK: 地址栏
-
-    private var addressBar: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Image(systemName: "globe")
-                    .font(.system(size: 13))
-                    .foregroundColor(PXVRUITheme.sub(scheme))
-                TextField("https://www.pixiv.net", text: $address)
-                    .font(.system(size: 13))
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .keyboardType(.URL)
-                    .onSubmit { controller.load(address) }
-                Button("连接") { controller.connect(server: "") }
-                    .font(.system(size: 13))
-                    .foregroundColor(PXVRUITheme.accent)
-                Button {
-                    showLogs.toggle()
-                } label: {
-                    Image(systemName: "doc.text")
-                        .font(.system(size: 13))
-                        .foregroundColor(PXVRUITheme.sub(scheme))
+            Button {
+                withAnimation(.easeOut(duration: 0.15)) {
+                    menuLevel = (menuLevel == nil) ? .main : nil
                 }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 17, weight: .bold))
+                    .rotationEffect(.degrees(90))
+                    .foregroundColor(.white)
+                    .frame(width: 44, height: 44)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            Divider().background(PXVRUITheme.line(scheme))
         }
-        .background(PXVRUITheme.card(scheme))
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
+        .background(barBlue.ignoresSafeArea(edges: .top))
     }
 
-    // MARK: 日志面板
+    // MARK: 菜单浮层
+
+    private func menuOverlay(level: PXVRMenuOverlay.Level) -> some View {
+        PXVRMenuOverlay(
+            level: Binding(get: { level },
+                           set: { menuLevel = $0 }),
+            onBookmarks: { closeMenu(); controller.load("https://www.pixiv.net/bookmark.php") },
+            onHistory: { closeMenu() },
+            onDownloads: { closeMenu() },
+            onAdvancedSearch: { closeMenu() },
+            onInputAddress: { closeMenu(); showAddressInput = true },
+            onMember: { closeMenu(); showMember = true },
+            onFeedback: { closeMenu() },
+            onQuit: { closeMenu() },
+            nightMode: $nightMode,
+            desktopMode: $desktopMode,
+            dataSync: $dataSync,
+            restoreLast: $restoreLast,
+            onBlockSettings: { closeMenu() },
+            onMoreOptions: { closeMenu() },
+            onFAQ: { closeMenu() },
+            onPixivHelp: { closeMenu() },
+            onCheckUpdate: { closeMenu() },
+            onAbout: { closeMenu() },
+            onHome: { closeMenu(); controller.load(address) },
+            onReload: { closeMenu(); controller.reload() }
+        )
+    }
+
+    private func closeMenu() { menuLevel = nil }
+
+    // MARK: 日志面板（长按标题呼出）
 
     private var logPanel: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text("日志")
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(PXVRUITheme.sub(scheme))
+                    .foregroundColor(.white.opacity(0.8))
                 Spacer()
                 Button("复制") { UIPasteboard.general.string = controller.logText }
-                    .font(.system(size: 11))
-                    .foregroundColor(PXVRUITheme.accent)
+                    .font(.system(size: 11)).foregroundColor(.white)
                 Button("导出") {
                     exportURL = controller.exportLogURL()
                     showExport = true
                 }
-                .font(.system(size: 11))
-                .foregroundColor(PXVRUITheme.accent)
+                .font(.system(size: 11)).foregroundColor(.white)
                 Button("清空") { controller.clearLogs() }
-                    .font(.system(size: 11))
-                    .foregroundColor(PXVRUITheme.accent)
+                    .font(.system(size: 11)).foregroundColor(.white)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
@@ -213,16 +218,16 @@ struct RootView: View {
                         Text(line)
                             .textSelection(.enabled)
                             .font(.system(size: 10, design: .monospaced))
-                            .foregroundColor(PXVRUITheme.text(scheme))
+                            .foregroundColor(.white)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
                 .padding(.horizontal, 12)
                 .padding(.bottom, 8)
             }
-            .frame(height: 140)
+            .frame(height: 130)
         }
-        .background(PXVRUITheme.card(scheme))
+        .background(Color(hex: 0x222222))
     }
 }
 
