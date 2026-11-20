@@ -15,6 +15,7 @@ struct PXVRMenuView: View {
     let onReload: () -> Void
     let onToggleDesktop: () -> Void
     let onExportLog: () -> Void
+    let onToggleLog: () -> Void
 
     @State private var desktopMode = false
     @State private var nightMode = false
@@ -48,6 +49,9 @@ struct PXVRMenuView: View {
                     }
                     Button { dismiss(); onExportLog() } label: {
                         row("导出日志", icon: "square.and.arrow.up")
+                    }
+                    Button { dismiss(); onToggleLog() } label: {
+                        row("显示 / 隐藏日志", icon: "terminal")
                     }
                     row("下载设置", icon: "slider.horizontal.3")
                     row("屏蔽设置", icon: "eye.slash")

@@ -83,7 +83,8 @@ struct RootView: View {
                 onMember: { showMember = true },
                 onReload: { controller.reload() },
                 onToggleDesktop: { controller.toggleDesktopMode() },
-                onExportLog: { exportURL = controller.exportLogURL(); showExport = true }
+                onExportLog: { exportURL = controller.exportLogURL(); showExport = true },
+                onToggleLog: { showLogs.toggle() }
             )
         }
         .sheet(isPresented: $showMember) {
@@ -129,6 +130,13 @@ struct RootView: View {
                 Image(systemName: "arrow.clockwise")
                     .font(.system(size: 16))
                     .foregroundColor(PXVRUITheme.text(scheme))
+            }
+
+            // 日志常驻入口：一点就显隐，不藏在地址栏里
+            Button { showLogs.toggle() } label: {
+                Image(systemName: showLogs ? "terminal.fill" : "terminal")
+                    .font(.system(size: 16))
+                    .foregroundColor(showLogs ? PXVRUITheme.accent : PXVRUITheme.text(scheme))
             }
 
             Button { showMenu = true } label: {
