@@ -187,8 +187,7 @@ struct RootView: View {
     }
 
     private func closeMenu() { menuLevel = nil }
-
-
+}
 
 // MARK: - 分享
 
