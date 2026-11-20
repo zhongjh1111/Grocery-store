@@ -50,9 +50,31 @@ final class PXVRRouter {
     /// ralt 表：主机 → 备路由
     private(set) var fallback: [String: Route] = [:]
 
+    /// 失败记录：地址 → 失败时间。失败的节点在冷却期内排到最后，
+    /// 避免每个请求都先撞一次 302 再回退（实测会让页面明显发钝）。
+    /// ji*：页面注入（正则 → 要插入的 script 标签）
+    private(set) var injections: [(NSRegularExpression, String)] = []
+    /// hnrw*：图片域名改写（旧 → 新）
+    private(set) var hostRewrites: [(from: String, to: String)] = []
+    /// bd*：屏蔽的域名（命中直接返回空）
+    private(set) var blocked: [NSRegularExpression] = []
+
+    private var failedAt: [String: Date] = [:]
+    private let failCooldown: TimeInterval = 600
+
+    func markFailed(_ address: String) {
+        failedAt[address] = Date()
+    }
+
+    private func isCoolingDown(_ address: String) -> Bool {
+        guard let t = failedAt[address] else { return false }
+        return Date().timeIntervalSince(t) < failCooldown
+    }
+
     /// 用 /xc 下发的配置重建
     func load(_ config: [String: Any]) {
         exact.removeAll(); patterns.removeAll(); groups.removeAll(); fallback.removeAll()
+        injections.removeAll(); hostRewrites.removeAll(); blocked.removeAll()
 
         // ① sg* 节点组
         if let n = intValue(config["sg"]) {
@@ -80,7 +102,38 @@ final class PXVRRouter {
             }
         }
 
-        // ③ ph* 主路由
+        // ③ ji* 注入：`<正则> <script...>`（正则与脚本之间是第一个空格）
+        if let n = intValue(config["ji"]) {
+            for i in 0..<n {
+                guard let line = config["ji\(i)"] as? String,
+                      let sp = line.firstIndex(of: " ") else { continue }
+                let pattern = String(line[..<sp])
+                let scripts = String(line[line.index(after: sp)...])
+                if let re = try? NSRegularExpression(pattern: pattern) {
+                    injections.append((re, scripts))
+                }
+            }
+        }
+
+        // ④ hnrw* 域名改写：`新主机/旧主机`
+        if let n = intValue(config["hnrw"]) {
+            for i in 0..<n {
+                guard let line = config["hnrw\(i)"] as? String else { continue }
+                let parts = line.split(separator: "/").map(String.init)
+                if parts.count >= 2 { hostRewrites.append((from: parts[1], to: parts[0])) }
+            }
+        }
+
+        // ⑤ bd* 屏蔽域名
+        if let n = intValue(config["bd"]) {
+            for i in 0..<n {
+                guard let line = config["bd\(i)"] as? String,
+                      let re = try? NSRegularExpression(pattern: line) else { continue }
+                blocked.append(re)
+            }
+        }
+
+        // ⑥ ph* 主路由
         if let n = intValue(config["ph"]) {
             for i in 0..<n {
                 guard let line = config["ph\(i)"] as? String else { continue }
@@ -141,6 +194,32 @@ final class PXVRRouter {
         add(route(for: host))
         add(fallback[host])
         add(groups["#ht"])
+        // 冷却中的排到最后（仍保留作兜底）
+        return out.sorted { !isCoolingDown($0.address) && isCoolingDown($1.address) }
+    }
+
+    /// 命中的注入脚本（没有则 nil）
+    func injection(for url: String) -> String? {
+        let range = NSRange(location: 0, length: (url as NSString).length)
+        for (re, scripts) in injections where re.firstMatch(in: url, range: range) != nil {
+            return scripts
+        }
+        return nil
+    }
+
+    /// 是否属于要屏蔽的域名
+    func isBlocked(_ url: String) -> Bool {
+        let range = NSRange(location: 0, length: (url as NSString).length)
+        for re in blocked where re.firstMatch(in: url, range: range) != nil { return true }
+        return false
+    }
+
+    /// 把正文里的旧图片域名换成新域名（hnrw）
+    func rewriteHosts(_ text: String) -> String {
+        var out = text
+        for (from, to) in hostRewrites where from != to {
+            out = out.replacingOccurrences(of: "//\(from)/", with: "//\(to)/")
+        }
         return out
     }
 

@@ -147,6 +147,13 @@ final class PXVRProxyServer {
         }
         headers["Host"] = nil
 
+        // 原版 bd* 列表：广告/统计域名直接吞掉，不产生任何请求
+        if router.isBlocked(target.absoluteString) {
+            PXVRLogger.info("[proxy] 屏蔽 \(target.host ?? "")")
+            respond(conn, status: 204, reason: "No Content", mime: "text/plain", body: Data())
+            return
+        }
+
         PXVRLogger.info("[proxy] \(method) \(target.absoluteString.prefix(120))")
 
         // 回退链：主路由 → ralt → #ht
@@ -201,6 +208,7 @@ final class PXVRProxyServer {
 
                 // 302/4xx/5xx 说明这个节点不通（鉴权失败也是 302），换下一个
                 if resp.status >= 300 {
+                    self.router.markFailed(r.address)
                     if !rest.isEmpty {
                         PXVRLogger.info("[proxy] \(r.address) 返回 \(resp.status)，换下一个 → \(rest[0].address)")
                         self.fetch(conn: conn, target: target, method: method, body: body,
@@ -216,7 +224,20 @@ final class PXVRProxyServer {
                 let mime = resp.headers["content-type"] ?? "application/octet-stream"
                 var payload = resp.body
                 if mime.contains("html") || mime.contains("css") {
-                    if let text = String(data: payload, encoding: .utf8) {
+                    if var text = String(data: payload, encoding: .utf8) {
+                        // ① 图片域名改写（i.pximg.net → i-cf.pximg.net 等）
+                        text = self.router.rewriteHosts(text)
+                        // ② 页面注入（jquery / tuf / 主题脚本）
+                        if mime.contains("html"),
+                           let scripts = self.router.injection(for: target.absoluteString) {
+                            if let r = text.range(of: "</body>", options: .backwards) {
+                                text.insert(contentsOf: scripts, at: r.lowerBound)
+                            } else {
+                                text += scripts
+                            }
+                            PXVRLogger.info("[proxy] 已注入脚本 \(target.host ?? "")")
+                        }
+                        // ③ 链接改写成本地代理路径
                         payload = Data(Self.rewrite(text, base: target).utf8)
                     }
                 }
@@ -224,6 +245,7 @@ final class PXVRProxyServer {
                              reason: resp.status == 200 ? "OK" : "Status",
                              mime: mime, body: payload)
             } catch {
+                self.router.markFailed(r.address)
                 if !rest.isEmpty {
                     PXVRLogger.info("[proxy] \(r.address) 失败，换下一个 → \(rest[0].address)")
                     self.fetch(conn: conn, target: target, method: method, body: body,

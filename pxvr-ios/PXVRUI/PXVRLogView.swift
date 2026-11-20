@@ -21,8 +21,8 @@ struct PXVRLogView: View {
             VStack(spacing: 0) {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 2) {
-                        ForEach(Array(controller.logs.enumerated()), id: \.offset) { _, line in
-                            Text(line)
+                        ForEach(controller.logs) { line in
+                            Text(line.text)
                                 .textSelection(.enabled)
                                 .font(.system(size: 11, design: .monospaced))
                                 .foregroundColor(.primary)

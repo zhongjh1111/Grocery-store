@@ -12,7 +12,7 @@ import WebKit
 
 final class WebController: NSObject, ObservableObject {
 
-    @Published var logs: [String] = []
+    @Published var logs: [LogLine] = []
     @Published var currentURL: String = ""
     @Published var pageTitle: String = ""
     @Published var isLoading = false
@@ -21,7 +21,7 @@ final class WebController: NSObject, ObservableObject {
     @Published var isConnecting = false
     @Published var lastConfig: [String: Any] = [:]
 
-    var logText: String { logs.joined(separator: "\n") }
+    var logText: String { logs.map(\.text).joined(separator: "\n") }
 
     func exportLogURL() -> URL? {
         let url = FileManager.default.temporaryDirectory
@@ -40,6 +40,13 @@ final class WebController: NSObject, ObservableObject {
     private(set) var webView: WKWebView!
 
     private let maxLogs = 120
+    /// 自增序号，保证每行 id 稳定（原来用 offset，裁剪缓冲区后会错位导致崩溃）
+    private var logSeq = 0
+
+    struct LogLine: Identifiable {
+        let id: Int
+        let text: String
+    }
 
     override init() {
         super.init()
@@ -241,7 +248,8 @@ final class WebController: NSObject, ObservableObject {
 
     func append(_ line: String) {
         let stamp = Self.formatter.string(from: Date())
-        logs.append("\(stamp) \(line)")
+        logSeq += 1
+        logs.append(LogLine(id: logSeq, text: "\(stamp) \(line)"))
         if logs.count > maxLogs { logs.removeFirst(logs.count - maxLogs) }
     }
 
