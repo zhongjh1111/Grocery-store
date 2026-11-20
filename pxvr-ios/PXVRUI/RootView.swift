@@ -67,8 +67,6 @@ struct RootView: View {
     @State private var desktopMode = false
     @State private var dataSync = true
     @State private var restoreLast = false
-    @State private var exportURL: URL?
-    @State private var showExport = false
 
     /// 原版 colorPrimary
     private let barBlue = Color(hex: 0x0096FA)
@@ -78,7 +76,6 @@ struct RootView: View {
             VStack(spacing: 0) {
                 appBar
                 WebViewContainer(controller: controller)
-                if showLogs { logPanel }
             }
 
             // 回到顶部
@@ -115,8 +112,8 @@ struct RootView: View {
         .sheet(isPresented: $showMember) {
             PXVRMemberView(controller: controller)
         }
-        .sheet(isPresented: $showExport) {
-            if let u = exportURL { ActivityView(activityItems: [u]) }
+        .sheet(isPresented: $showLogs) {
+            PXVRLogView(controller: controller)
         }
         .alert("输入地址", isPresented: $showAddressInput) {
             TextField("https://", text: $address)
@@ -125,7 +122,8 @@ struct RootView: View {
         }
         .onAppear {
             PXVRProxyServer.shared.start()
-            controller.load(address)
+            // 先握手拿配置（路由表靠它），再打开页面
+            controller.connect(server: "", thenLoad: address)
         }
     }
 
@@ -190,46 +188,7 @@ struct RootView: View {
 
     private func closeMenu() { menuLevel = nil }
 
-    // MARK: 日志面板（长按标题呼出）
 
-    private var logPanel: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text("日志")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.8))
-                Spacer()
-                Button("复制") { UIPasteboard.general.string = controller.logText }
-                    .font(.system(size: 11)).foregroundColor(.white)
-                Button("导出") {
-                    exportURL = controller.exportLogURL()
-                    showExport = true
-                }
-                .font(.system(size: 11)).foregroundColor(.white)
-                Button("清空") { controller.clearLogs() }
-                    .font(.system(size: 11)).foregroundColor(.white)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 1) {
-                    ForEach(Array(controller.logs.enumerated()), id: \.offset) { _, line in
-                        Text(line)
-                            .textSelection(.enabled)
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
-                .padding(.horizontal, 12)
-                .padding(.bottom, 8)
-            }
-            .frame(height: 130)
-        }
-        .background(Color(hex: 0x222222))
-    }
-}
 
 // MARK: - 分享
 

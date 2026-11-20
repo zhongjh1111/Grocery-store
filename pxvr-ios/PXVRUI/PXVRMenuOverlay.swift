@@ -64,10 +64,7 @@ struct PXVRMenuOverlay: View {
         }
         .frame(width: 214)
         .background(Color.white)
-        .clipShape(
-            .rect(topLeadingRadius: 0, bottomLeadingRadius: 10,
-                  bottomTrailingRadius: 10, topTrailingRadius: 0)
-        )
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .shadow(color: .black.opacity(0.22), radius: 10, x: -2, y: 6)
     }
 

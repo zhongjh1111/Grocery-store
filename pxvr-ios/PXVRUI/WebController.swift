@@ -30,6 +30,9 @@ final class WebController: NSObject, ObservableObject {
         catch { return nil }
     }
     @Published var isLoggedIn = false
+
+    /// 最近一次请求的真实地址（webView.url 是代理地址，不能复用）
+    private var lastRequested: String = ""
     /// 握手成功的那台服务器
     private(set) var activeServer: URL?
 
@@ -90,6 +93,7 @@ final class WebController: NSObject, ObservableObject {
             append("[app] 地址非法: \(trimmed)")
             return
         }
+        lastRequested = normalized
         // 一律走本地代理：iOS 无法像 Android 那样劫持 WebView 代理，
         // 只能把目标 URL 编码进路径。
         PXVRProxyServer.shared.start()
@@ -114,7 +118,7 @@ final class WebController: NSObject, ObservableObject {
     }
 
     /// 完整握手：/xk 拿设备 key → /xc 上报 → 读下发的主页面地址并加载
-    func connect(server: String) {
+    func connect(server: String, thenLoad address: String? = nil) {
         let trimmed = server.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalized = Self.forceHTTPS(trimmed)
         let url: URL? = trimmed.isEmpty ? nil : URL(string: normalized)
@@ -155,6 +159,10 @@ final class WebController: NSObject, ObservableObject {
                 if let page = result.page, let pageURL = URL(string: page) {
                     self.append("[net] 加载主页面: \(page)")
                     self.webView.load(URLRequest(url: pageURL))
+                } else if let addr = address, result.base != nil {
+                    // 服务端没下发主页面：配置已就位，直接打开传入的地址
+                    self.append("[net] 握手完成，打开 \(addr)")
+                    self.load(addr)
                 } else {
                     self.append("[net] 握手结束但没有下发主页面（mp/hp 为空）")
                 }
@@ -196,6 +204,8 @@ final class WebController: NSObject, ObservableObject {
                 await MainActor.run {
                     PXVRProxyServer.shared.loadConfig(cfg)
                     self.append("[proxy] 登录后配置刷新：\(cfg.count) 字段，ph=\(cfg["ph"] ?? "?")，ralt=\(cfg["ralt"] ?? "?")")
+                    // 配置到位后重开当前页面，之前 502 的那次会重试成功
+                    self.load(self.lastRequested.isEmpty ? "https://www.pixiv.net" : self.lastRequested)
                 }
             }
         }
