@@ -36,7 +36,7 @@ struct PXVRMemberView: View {
                 }
                 .padding(16)
             }
-            .background(PXVRTheme.bg(scheme).ignoresSafeArea())
+            .background(PXVRUITheme.bg(scheme).ignoresSafeArea())
             .navigationTitle("我的大会员")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -55,20 +55,20 @@ struct PXVRMemberView: View {
             HStack(spacing: 12) {
                 Image(systemName: "person.crop.circle.fill")
                     .font(.system(size: 40))
-                    .foregroundColor(PXVRTheme.sub(scheme))
+                    .foregroundColor(PXVRUITheme.sub(scheme))
                 VStack(alignment: .leading, spacing: 3) {
                     Text(controller.isLoggedIn ? email : "未登录帐号")
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(PXVRTheme.text(scheme))
+                        .foregroundColor(PXVRUITheme.text(scheme))
                     Text(controller.isLoggedIn ? "已登录" : "未登录 PXVR 帐号并上线本设备。")
                         .font(.system(size: 12))
-                        .foregroundColor(PXVRTheme.sub(scheme))
+                        .foregroundColor(PXVRUITheme.sub(scheme))
                 }
                 Spacer()
             }
 
             if !controller.isLoggedIn {
-                Divider().background(PXVRTheme.line(scheme))
+                Divider().background(PXVRUITheme.line(scheme))
 
                 field("邮箱", text: $email, keyboard: .emailAddress)
                 secureField("密码", text: $password)
@@ -83,7 +83,7 @@ struct PXVRMemberView: View {
                             .font(.system(size: 15, weight: .semibold))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 11)
-                            .background(PXVRTheme.accent)
+                            .background(PXVRUITheme.accent)
                             .foregroundColor(.white)
                             .cornerRadius(8)
                     }
@@ -96,21 +96,21 @@ struct PXVRMemberView: View {
                             .padding(.vertical, 11)
                             .overlay(
                                 RoundedRectangle(cornerRadius: 8)
-                                    .stroke(PXVRTheme.accent, lineWidth: 1)
+                                    .stroke(PXVRUITheme.accent, lineWidth: 1)
                             )
-                            .foregroundColor(PXVRTheme.accent)
+                            .foregroundColor(PXVRUITheme.accent)
                     }
                 }
 
                 if isRegister {
                     Text("我们会将登录密码发送至您的邮箱")
                         .font(.system(size: 11))
-                        .foregroundColor(PXVRTheme.sub(scheme))
+                        .foregroundColor(PXVRUITheme.sub(scheme))
                 }
             }
         }
         .padding(16)
-        .background(PXVRTheme.card(scheme))
+        .background(PXVRUITheme.card(scheme))
         .cornerRadius(12)
     }
 
@@ -119,20 +119,20 @@ struct PXVRMemberView: View {
     private var memberCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 6) {
-                Image(systemName: "crown.fill").foregroundColor(PXVRTheme.accent)
+                Image(systemName: "crown.fill").foregroundColor(PXVRUITheme.accent)
                 Text("我的大会员")
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(PXVRTheme.text(scheme))
+                    .foregroundColor(PXVRUITheme.text(scheme))
                 Spacer()
                 Text(controller.isLoggedIn ? "已开通" : "当前未开通 PXVR 大会员")
                     .font(.system(size: 12))
-                    .foregroundColor(controller.isLoggedIn ? PXVRTheme.online : PXVRTheme.sub(scheme))
+                    .foregroundColor(controller.isLoggedIn ? PXVRUITheme.online : PXVRUITheme.sub(scheme))
             }
 
             if controller.isLoggedIn {
                 Text("到期时间：\(expireText)")
                     .font(.system(size: 13))
-                    .foregroundColor(PXVRTheme.sub(scheme))
+                    .foregroundColor(PXVRUITheme.sub(scheme))
             }
 
             Button {
@@ -142,13 +142,13 @@ struct PXVRMemberView: View {
                     .font(.system(size: 15, weight: .semibold))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 11)
-                    .background(PXVRTheme.accent)
+                    .background(PXVRUITheme.accent)
                     .foregroundColor(.white)
                     .cornerRadius(8)
             }
         }
         .padding(16)
-        .background(PXVRTheme.card(scheme))
+        .background(PXVRUITheme.card(scheme))
         .cornerRadius(12)
     }
 
@@ -158,13 +158,13 @@ struct PXVRMemberView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("设备管理器")
                 .font(.system(size: 16, weight: .semibold))
-                .foregroundColor(PXVRTheme.text(scheme))
+                .foregroundColor(PXVRUITheme.text(scheme))
 
             HStack(spacing: 6) {
-                Circle().fill(PXVRTheme.online).frame(width: 7, height: 7)
+                Circle().fill(PXVRUITheme.online).frame(width: 7, height: 7)
                 Text("当前设备在线")
                     .font(.system(size: 13))
-                    .foregroundColor(PXVRTheme.text(scheme))
+                    .foregroundColor(PXVRUITheme.text(scheme))
             }
 
             VStack(alignment: .leading, spacing: 6) {
@@ -186,12 +186,12 @@ struct PXVRMemberView: View {
                     .font(.system(size: 15))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(PXVRTheme.line(scheme)))
-                    .foregroundColor(PXVRTheme.sub(scheme))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(PXVRUITheme.line(scheme)))
+                    .foregroundColor(PXVRUITheme.sub(scheme))
             }
         }
         .padding(16)
-        .background(PXVRTheme.card(scheme))
+        .background(PXVRUITheme.card(scheme))
         .cornerRadius(12)
     }
 
@@ -200,7 +200,7 @@ struct PXVRMemberView: View {
     private func infoLine(_ text: String) -> some View {
         Text(text)
             .font(.system(size: 12))
-            .foregroundColor(PXVRTheme.sub(scheme))
+            .foregroundColor(PXVRUITheme.sub(scheme))
     }
 
     private func smallButton(_ title: String) -> some View {
@@ -208,8 +208,8 @@ struct PXVRMemberView: View {
             .font(.system(size: 12))
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(PXVRTheme.line(scheme)))
-            .foregroundColor(PXVRTheme.text(scheme))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(PXVRUITheme.line(scheme)))
+            .foregroundColor(PXVRUITheme.text(scheme))
     }
 
     private func field(_ title: String, text: Binding<String>, keyboard: UIKeyboardType = .default) -> some View {
@@ -218,16 +218,16 @@ struct PXVRMemberView: View {
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
             .padding(11)
-            .background(PXVRTheme.bg(scheme))
+            .background(PXVRUITheme.bg(scheme))
             .cornerRadius(8)
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(PXVRTheme.line(scheme)))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(PXVRUITheme.line(scheme)))
     }
 
     private func secureField(_ title: String, text: Binding<String>) -> some View {
         SecureField(title, text: text)
             .padding(11)
-            .background(PXVRTheme.bg(scheme))
+            .background(PXVRUITheme.bg(scheme))
             .cornerRadius(8)
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(PXVRTheme.line(scheme)))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(PXVRUITheme.line(scheme)))
     }
 }

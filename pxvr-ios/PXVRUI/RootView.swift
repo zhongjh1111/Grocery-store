@@ -21,7 +21,7 @@ struct WebViewContainer: UIViewRepresentable {
     func makeUIView(context: Context) -> WKWebView {
         let wv = controller.webView!
         let refresh = UIRefreshControl()
-        refresh.tintColor = UIColor(PXVRTheme.accent)
+        refresh.tintColor = UIColor(PXVRUITheme.accent)
         refresh.addTarget(context.coordinator,
                           action: #selector(Coordinator.onRefresh),
                           for: .valueChanged)
@@ -77,7 +77,7 @@ struct RootView: View {
             WebViewContainer(controller: controller)
             if showLogs { logPanel }
         }
-        .background(PXVRTheme.bg(scheme).ignoresSafeArea())
+        .background(PXVRUITheme.bg(scheme).ignoresSafeArea())
         .sheet(isPresented: $showMenu) {
             PXVRMenuView(
                 onMember: { showMember = true },
@@ -105,14 +105,14 @@ struct RootView: View {
             Button { controller.goBack() } label: {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 17, weight: .medium))
-                    .foregroundColor(controller.canGoBack ? PXVRTheme.text(scheme) : PXVRTheme.sub(scheme))
+                    .foregroundColor(controller.canGoBack ? PXVRUITheme.text(scheme) : PXVRUITheme.sub(scheme))
             }
             .disabled(!controller.canGoBack)
 
             Button { controller.goForward() } label: {
                 Image(systemName: "chevron.right")
                     .font(.system(size: 17, weight: .medium))
-                    .foregroundColor(controller.canGoForward ? PXVRTheme.text(scheme) : PXVRTheme.sub(scheme))
+                    .foregroundColor(controller.canGoForward ? PXVRUITheme.text(scheme) : PXVRUITheme.sub(scheme))
             }
             .disabled(!controller.canGoForward)
 
@@ -120,7 +120,7 @@ struct RootView: View {
                 Text(controller.pageTitle.isEmpty ? "PXVR" : controller.pageTitle)
                     .font(.system(size: 14, weight: .medium))
                     .lineLimit(1)
-                    .foregroundColor(PXVRTheme.text(scheme))
+                    .foregroundColor(PXVRUITheme.text(scheme))
             }
 
             Spacer()
@@ -128,18 +128,18 @@ struct RootView: View {
             Button { controller.reload() } label: {
                 Image(systemName: "arrow.clockwise")
                     .font(.system(size: 16))
-                    .foregroundColor(PXVRTheme.text(scheme))
+                    .foregroundColor(PXVRUITheme.text(scheme))
             }
 
             Button { showMenu = true } label: {
                 Image(systemName: "line.3.horizontal")
                     .font(.system(size: 17))
-                    .foregroundColor(PXVRTheme.text(scheme))
+                    .foregroundColor(PXVRUITheme.text(scheme))
             }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(PXVRTheme.bg(scheme))
+        .background(PXVRUITheme.bg(scheme))
     }
 
     // MARK: 地址栏
@@ -149,7 +149,7 @@ struct RootView: View {
             HStack(spacing: 8) {
                 Image(systemName: "globe")
                     .font(.system(size: 13))
-                    .foregroundColor(PXVRTheme.sub(scheme))
+                    .foregroundColor(PXVRUITheme.sub(scheme))
                 TextField("https://www.pixiv.net", text: $address)
                     .font(.system(size: 13))
                     .textInputAutocapitalization(.never)
@@ -158,20 +158,20 @@ struct RootView: View {
                     .onSubmit { controller.load(address) }
                 Button("连接") { controller.connect(server: "") }
                     .font(.system(size: 13))
-                    .foregroundColor(PXVRTheme.accent)
+                    .foregroundColor(PXVRUITheme.accent)
                 Button {
                     showLogs.toggle()
                 } label: {
                     Image(systemName: "doc.text")
                         .font(.system(size: 13))
-                        .foregroundColor(PXVRTheme.sub(scheme))
+                        .foregroundColor(PXVRUITheme.sub(scheme))
                 }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
-            Divider().background(PXVRTheme.line(scheme))
+            Divider().background(PXVRUITheme.line(scheme))
         }
-        .background(PXVRTheme.card(scheme))
+        .background(PXVRUITheme.card(scheme))
     }
 
     // MARK: 日志面板
@@ -181,20 +181,20 @@ struct RootView: View {
             HStack {
                 Text("日志")
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(PXVRTheme.sub(scheme))
+                    .foregroundColor(PXVRUITheme.sub(scheme))
                 Spacer()
                 Button("复制") { UIPasteboard.general.string = controller.logText }
                     .font(.system(size: 11))
-                    .foregroundColor(PXVRTheme.accent)
+                    .foregroundColor(PXVRUITheme.accent)
                 Button("导出") {
                     exportURL = controller.exportLogURL()
                     showExport = true
                 }
                 .font(.system(size: 11))
-                .foregroundColor(PXVRTheme.accent)
+                .foregroundColor(PXVRUITheme.accent)
                 Button("清空") { controller.clearLogs() }
                     .font(.system(size: 11))
-                    .foregroundColor(PXVRTheme.accent)
+                    .foregroundColor(PXVRUITheme.accent)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
@@ -205,7 +205,7 @@ struct RootView: View {
                         Text(line)
                             .textSelection(.enabled)
                             .font(.system(size: 10, design: .monospaced))
-                            .foregroundColor(PXVRTheme.text(scheme))
+                            .foregroundColor(PXVRUITheme.text(scheme))
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
@@ -214,7 +214,7 @@ struct RootView: View {
             }
             .frame(height: 140)
         }
-        .background(PXVRTheme.card(scheme))
+        .background(PXVRUITheme.card(scheme))
     }
 }
 

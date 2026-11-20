@@ -24,7 +24,7 @@ struct PXVRMenuView: View {
             List {
                 Section {
                     Button { dismiss(); onMember() } label: {
-                        row("我的大会员", icon: "crown", tint: PXVRTheme.accent)
+                        row("我的大会员", icon: "crown", tint: PXVRUITheme.accent)
                     }
                     row("下载管理器", icon: "arrow.down.circle")
                     row("搜索标题或标签", icon: "magnifyingglass")
@@ -75,9 +75,9 @@ struct PXVRMenuView: View {
         HStack(spacing: 12) {
             Image(systemName: icon)
                 .frame(width: 22)
-                .foregroundColor(tint ?? PXVRTheme.sub(scheme))
+                .foregroundColor(tint ?? PXVRUITheme.sub(scheme))
             Text(title)
-                .foregroundColor(tint ?? PXVRTheme.text(scheme))
+                .foregroundColor(tint ?? PXVRUITheme.text(scheme))
             Spacer()
         }
         .contentShape(Rectangle())
