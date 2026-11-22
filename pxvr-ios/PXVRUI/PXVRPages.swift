@@ -14,7 +14,12 @@ import UIKit
 private struct PageShell<Content: View>: View {
     let title: String
     @Environment(\.dismiss) var dismiss
-    @ViewBuilder var content: () -> Content
+    let content: () -> Content
+
+    init(title: String, @ViewBuilder content: @escaping () -> Content) {
+        self.title = title
+        self.content = content
+    }
 
     var body: some View {
         NavigationView {
@@ -118,6 +123,14 @@ struct PXVRDownloadsPage: View {
     let onOpen: (String) -> Void
     @State private var items: [DownloadItem] = DataManager.shared.loadDownloads()
 
+    private func statusText(_ st: DownloadStatus) -> String {
+        switch st {
+        case .done:       return "已完成"
+        case .inProgress: return "下载中"
+        case .failed:     return "失败"
+        }
+    }
+
     var body: some View {
         PageShell(title: "下载管理器") {
             Group {
@@ -127,8 +140,9 @@ struct PXVRDownloadsPage: View {
                     List {
                         ForEach(items) { d in
                             VStack(alignment: .leading, spacing: 4) {
-                                Text(d.fileName).font(.system(size: 15)).lineLimit(1)
-                                Text(d.status).font(.system(size: 12)).foregroundColor(.secondary)
+                                Text(d.title).font(.system(size: 15)).lineLimit(1)
+                                Text(statusText(d.status))
+                                    .font(.system(size: 12)).foregroundColor(.secondary)
                             }
                         }
                         .onDelete { idx in

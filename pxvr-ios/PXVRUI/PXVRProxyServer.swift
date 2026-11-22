@@ -147,6 +147,12 @@ final class PXVRProxyServer {
         }
         headers["Host"] = nil
 
+        // 原版对 favicon 也直接返回空 200
+        if target.path == "/favicon.ico" {
+            respond(conn, status: 200, reason: "OK", mime: "image/x-icon", body: Data())
+            return
+        }
+
         // 原版 bd* 列表：广告/统计域名直接吞掉，不产生任何请求
         if router.isBlocked(target.absoluteString) {
             PXVRLogger.info("[proxy] 屏蔽 \(target.host ?? "")")
@@ -351,6 +357,15 @@ final class PXVRProxyServer {
         }catch(e){}
         return of.call(this, input, init);
       };}
+      try{
+        if (navigator.serviceWorker) {
+          navigator.serviceWorker.getRegistrations && navigator.serviceWorker.getRegistrations()
+            .then(function(rs){ rs.forEach(function(r){ r.unregister(); }); }).catch(function(){});
+          navigator.serviceWorker.register = function(){
+            return Promise.reject(new Error('sw disabled under proxy'));
+          };
+        }
+      }catch(e){}
       var oo = XMLHttpRequest.prototype.open;
       XMLHttpRequest.prototype.open = function(m,u){
         try{ arguments[1] = map(u); }catch(e){}

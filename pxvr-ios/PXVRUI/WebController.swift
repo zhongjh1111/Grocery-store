@@ -271,6 +271,37 @@ final class WebController: NSObject, ObservableObject {
 
 extension WebController: WKNavigationDelegate {
 
+    /// 等价替代 Android 的透明代理：
+    /// 页面里 JS 改 location、提交表单、点没被改写的链接时，WebView 会去请求真实域名。
+    /// 这里全部拦下来，改走本地代理重新加载。
+    func webView(_ webView: WKWebView,
+                 decidePolicyFor navigationAction: WKNavigationAction,
+                 decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        guard let url = navigationAction.request.url else {
+            decisionHandler(.allow)
+            return
+        }
+        let s = url.absoluteString
+
+        // 已经是代理地址 → 放行
+        if s.hasPrefix("http://127.0.0.1") || s.hasPrefix("https://127.0.0.1") {
+            decisionHandler(.allow)
+            return
+        }
+
+        // 普通网页请求 → 取消并改走代理
+        if url.scheme == "http" || url.scheme == "https" {
+            decisionHandler(.cancel)
+            append("[web] 接管导航 \(s.prefix(80))")
+            load(s)
+            return
+        }
+
+        // tel: / mailto: / itms-apps: 等交给系统
+        decisionHandler(.allow)
+    }
+
+
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         isLoading = true
         append("[web] 开始加载 \(webView.url?.absoluteString ?? "?")")
@@ -281,6 +312,14 @@ extension WebController: WKNavigationDelegate {
         syncState()
         append("[web] 完成 \(webView.url?.absoluteString ?? "?")")
         bridge.push("route", ["url": webView.url?.absoluteString ?? ""])
+
+        // 记录浏览历史（对应原版 ObjectBox 的 History）
+        let real = lastRequested
+        if real.hasPrefix("http"), !real.contains("127.0.0.1") {
+            let title = pageTitle
+            let item = HistoryItem(title: title, url: real)
+            DataManager.shared.addHistory(item)
+        }
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {

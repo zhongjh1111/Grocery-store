@@ -54,15 +54,34 @@ struct WebViewContainer: UIViewRepresentable {
 
 // MARK: - 主界面
 
+enum PXVRPageKind: String, Identifiable {
+    case bookmarks, history, downloads, search, block, about
+    var id: String { rawValue }
+}
+
+/// 同一个视图只能挂一个 .sheet，多个会互相吞掉，所以统一到一个枚举
+enum PXVRSheet: Identifiable {
+    case member
+    case logs
+    case page(PXVRPageKind)
+
+    var id: String {
+        switch self {
+        case .member: return "member"
+        case .logs:   return "logs"
+        case .page(let p): return "page-" + p.id
+        }
+    }
+}
+
 struct RootView: View {
 
     @StateObject private var controller = WebController()
 
     @State private var address = "https://www.pixiv.net"
     @State private var menuLevel: PXVRMenuOverlay.Level?
-    @State private var showMember = false
     @State private var showAddressInput = false
-    @State private var showLogs = false
+    @State private var activeSheet: PXVRSheet?
     @State private var nightMode = false
     @State private var desktopMode = false
     @State private var dataSync = true
@@ -109,11 +128,12 @@ struct RootView: View {
                     .padding(.top, 44)
             }
         }
-        .sheet(isPresented: $showMember) {
-            PXVRMemberView(controller: controller)
-        }
-        .sheet(isPresented: $showLogs) {
-            PXVRLogView(controller: controller)
+        .sheet(item: $activeSheet) { sh in
+            switch sh {
+            case .member:      PXVRMemberView(controller: controller)
+            case .logs:        PXVRLogView(controller: controller)
+            case .page(let k): pageView(k)
+            }
         }
         .alert("输入地址", isPresented: $showAddressInput) {
             TextField("https://", text: $address)
@@ -136,7 +156,7 @@ struct RootView: View {
                 .foregroundColor(.white)
                 .lineLimit(1)
                 // 长按标题 → 显隐日志（原版没有日志面板，但调试需要）
-                .onLongPressGesture(minimumDuration: 0.6) { showLogs.toggle() }
+                .onLongPressGesture(minimumDuration: 0.6) { toggleLogs() }
 
             Spacer()
 
@@ -163,30 +183,51 @@ struct RootView: View {
         PXVRMenuOverlay(
             level: Binding(get: { level },
                            set: { menuLevel = $0 }),
-            onBookmarks: { closeMenu(); controller.load("https://www.pixiv.net/bookmark.php") },
-            onHistory: { closeMenu() },
-            onDownloads: { closeMenu() },
-            onAdvancedSearch: { closeMenu() },
+            onBookmarks: { closeMenu(); activeSheet = .page(.bookmarks) },
+            onHistory: { closeMenu(); activeSheet = .page(.history) },
+            onDownloads: { closeMenu(); activeSheet = .page(.downloads) },
+            onAdvancedSearch: { closeMenu(); activeSheet = .page(.search) },
             onInputAddress: { closeMenu(); showAddressInput = true },
-            onMember: { closeMenu(); showMember = true },
+            onMember: { closeMenu(); activeSheet = .member },
             onFeedback: { closeMenu() },
             onQuit: { closeMenu() },
             nightMode: $nightMode,
             desktopMode: $desktopMode,
             dataSync: $dataSync,
             restoreLast: $restoreLast,
-            onBlockSettings: { closeMenu() },
+            onBlockSettings: { closeMenu(); activeSheet = .page(.block) },
             onMoreOptions: { closeMenu() },
             onFAQ: { closeMenu() },
             onPixivHelp: { closeMenu() },
             onCheckUpdate: { closeMenu() },
-            onAbout: { closeMenu() },
+            onAbout: { closeMenu(); activeSheet = .page(.about) },
             onHome: { closeMenu(); controller.load(address) },
             onReload: { closeMenu(); controller.reload() }
         )
     }
 
     private func closeMenu() { menuLevel = nil }
+
+    /// 日志改成弹窗（长按标题或菜单里呼出）
+    private func toggleLogs() {
+        activeSheet = (activeSheet == nil) ? .logs : nil
+    }
+
+    @ViewBuilder
+    private func pageView(_ kind: PXVRPageKind) -> some View {
+        let open: (String) -> Void = { url in
+            activeSheet = nil
+            controller.load(url)
+        }
+        switch kind {
+        case .bookmarks: PXVRBookmarksPage(onOpen: open)
+        case .history:   PXVRHistoryPage(onOpen: open)
+        case .downloads: PXVRDownloadsPage(onOpen: open)
+        case .search:    PXVRSearchPage(onSearch: open)
+        case .block:     PXVRBlockPage()
+        case .about:     PXVRAboutPage()
+        }
+    }
 }
 
 // MARK: - 分享
