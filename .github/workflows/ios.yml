@@ -107,12 +107,11 @@ jobs:
   build-ipa:
     # macos-14 在本仓库不可用（1 秒即被取消），改回 macos-15
     runs-on: macos-15
-    env:
-      # 浅克隆下 git rev-list --count 恒为 1，用运行序号才真正递增
-      PXVR_BUILD_NUM: ${{ github.run_number }}
     # 去掉 needs: build-and-test —— 测试任务被取消时也要能出包
     timeout-minutes: 25
     env:
+      # 浅克隆下 git rev-list --count 恒为 1，用运行序号才真正递增
+      PXVR_BUILD_NUM: ${{ github.run_number }}
       PXVR_P12_B64: ${{ secrets.PXVR_P12_B64 }}
       PXVR_KEYS_B64: ${{ secrets.PXVR_KEYS_B64 }}
 
