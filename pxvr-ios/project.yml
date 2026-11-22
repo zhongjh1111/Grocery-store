@@ -95,6 +95,9 @@ targets:
       path: PXVRUI/Info.plist
       properties:
         CFBundleDisplayName: PXVR
+        # 交给构建变量，CI 会注入 "1.<提交数>"；写死会导致永远显示 1.0
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         UILaunchScreen: {}
         # 注意：不能同时写 NSAllowsArbitraryLoadsInWebContent，
         # 否则 NSAllowsArbitraryLoads 会被 iOS 忽略（10+ 的规则）。

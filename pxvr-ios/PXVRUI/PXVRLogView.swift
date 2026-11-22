@@ -13,8 +13,6 @@ struct PXVRLogView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var controller: WebController
 
-    @State private var exportURL: URL?
-    @State private var showExport = false
 
     var body: some View {
         NavigationView {
@@ -49,16 +47,16 @@ struct PXVRLogView: View {
                     }
                     Spacer()
                     Button {
-                        exportURL = controller.exportLogURL()
-                        if exportURL != nil { showExport = true }
+                        if let u = controller.exportLogURL() {
+                            PXVRShare.present([u])
+                        } else {
+                            controller.append("[app] 日志导出失败：写文件出错")
+                        }
                     } label: {
                         Label("导出", systemImage: "square.and.arrow.up")
                     }
                 }
             }
-        }
-        .sheet(isPresented: $showExport) {
-            if let u = exportURL { ActivityView(activityItems: [u]) }
         }
     }
 }
