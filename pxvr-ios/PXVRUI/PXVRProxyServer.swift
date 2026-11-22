@@ -182,9 +182,11 @@ final class PXVRProxyServer {
             path += "?" + q
         }
 
+        // UA 用 WebView 自己发来的（对应原版 settings.getUserAgentString()），
+        // 拿不到才退回内置串
         var hdrs: [String: String] = [
             "Host": host,
-            "User-Agent": Self.browserUA,
+            "User-Agent": clientHeaders["User-Agent"] ?? Self.browserUA,
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
             "Accept-Language": "ja,en;q=0.9",
             "Accept-Encoding": "identity",

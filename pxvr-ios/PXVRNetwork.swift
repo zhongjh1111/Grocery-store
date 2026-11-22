@@ -106,6 +106,7 @@ final class PXVRNetwork {
         let resp = await callAPI(baseURL: baseURL, path: PXVRConstants.pathDeviceKey, payload: [:])
         if let id = resp?["id"] as? String, !id.isEmpty {
             self.deviceKey = id
+            Self.storeKey(id)
             return id
         }
         PXVRLogger.warning("/xk 未返回设备 key（字段 \"id\"）")
@@ -149,14 +150,51 @@ final class PXVRNetwork {
         return resp
     }
 
-    /// 完整握手：/xk 拿设备 key → /xc 上报 → 从下发的配置里取主页面地址。
-    /// 返回 (主页面URL, 完整配置)。
+    /// 设备 key 持久化（对应原版 ws0.q0("k", ...) / ws0.t("k")）
+    private static let keyStoreKey = "pxvr.deviceKey"
+
+    private static func storedKey() -> String? {
+        let v = UserDefaults.standard.string(forKey: keyStoreKey)
+        return (v?.isEmpty == false) ? v : nil
+    }
+
+    private static func storeKey(_ k: String) {
+        UserDefaults.standard.set(k, forKey: keyStoreKey)
+    }
+
+    static func clearStoredKey() {
+        UserDefaults.standard.removeObject(forKey: keyStoreKey)
+    }
+
+    /// 完整握手。对应原版 ps0：
+    ///   内存有 key → 直接用；本地存有 key → 直接用；
+    ///   都没有才 /xk，拿到后写盘。**有 key 就永不再发 /xk。**
     func handshake(baseURL: URL) async -> (page: String?, config: [String: Any]?) {
+        // ① 复用已有 key，跳过 /xk
+        if deviceKey == nil, let saved = Self.storedKey() {
+            deviceKey = saved
+            PXVRLogger.info("[net] 复用已存设备 key \(saved.prefix(12))…")
+        }
+
+        if deviceKey != nil, let cfg = await performXC(baseURL: baseURL),
+           (cfg["result"] as? String) == "ok" {
+            let page = (cfg["mp"] as? String) ?? (cfg["hp"] as? String)
+            PXVRLogger.info("/xc 成功（复用设备 key），主页面 = \(page ?? "<未下发>")")
+            return (page, cfg)
+        }
+
+        // ② key 不存在或已失效 → 重新 /xk
+        if deviceKey != nil {
+            PXVRLogger.info("[net] 已存 key 失效，重新 /xk")
+        }
+        deviceKey = nil
         guard let key = await performXK(baseURL: baseURL) else {
             PXVRLogger.warning("握手中断：/xk 失败")
             return (nil, nil)
         }
         PXVRLogger.info("/xk 成功，设备 key = \(key)")
+        Self.storeKey(key)
+
         guard let cfg = await performXC(baseURL: baseURL) else {
             PXVRLogger.warning("握手中断：/xc 失败")
             return (nil, nil)
