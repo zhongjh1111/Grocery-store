@@ -229,7 +229,17 @@ final class PXVRProxyServer {
                     if var text = String(data: payload, encoding: .utf8) {
                         // ① 图片域名改写（i.pximg.net → i-cf.pximg.net 等）
                         text = self.router.rewriteHosts(text)
-                        // ② 页面注入（jquery / tuf / 主题脚本）
+                        // ② 代理补丁：真实基址 + fetch/XHR 拦截（必须在页面脚本之前）
+                        if mime.contains("html") {
+                            let base = "\(target.scheme ?? "https")://\(target.host ?? "")"
+                            let head = "<script>window.__PXVR_BASE__=\"\(base)\";</script><script>\(Self.proxyShimJS)</script>"
+                            if let r = text.range(of: "<head>", options: .caseInsensitive) {
+                                text.insert(contentsOf: head, at: r.upperBound)
+                            } else {
+                                text = head + text
+                            }
+                        }
+                        // ③ 页面注入（jquery / tuf / 主题脚本）
                         if mime.contains("html"),
                            let scripts = self.router.injection(for: target.absoluteString) {
                             if let r = text.range(of: "</body>", options: .backwards) {
@@ -245,7 +255,8 @@ final class PXVRProxyServer {
                 }
                 self.respond(conn, status: resp.status,
                              reason: resp.status == 200 ? "OK" : "Status",
-                             mime: mime, body: payload)
+                             mime: mime, body: payload,
+                             headers: Self.forwardableHeaders(resp.headers))
             } catch {
                 self.router.markFailed(r.address)
                 if !rest.isEmpty {
@@ -299,15 +310,111 @@ final class PXVRProxyServer {
 
     // MARK: - 输出
 
-    private func respond(_ conn: NWConnection, status: Int, reason: String, mime: String, body: Data) {
+    private func respond(_ conn: NWConnection, status: Int, reason: String, mime: String,
+                         body: Data, headers extra: [String: String] = [:]) {
         var head = "HTTP/1.1 \(status) \(reason)\r\n"
         head += "Content-Type: \(mime)\r\n"
         head += "Content-Length: \(body.count)\r\n"
         head += "Access-Control-Allow-Origin: *\r\n"
+        for (k, v) in extra { head += "\(k): \(v)\r\n" }
         head += "Connection: close\r\n\r\n"
         var out = Data(head.utf8)
         out.append(body)
         conn.send(content: out, completion: .contentProcessed { _ in conn.cancel() })
+    }
+
+
+    /// 注入到每个 HTML 页面头部：
+    /// 1) 告诉脚本真实基址（页面在 127.0.0.1 上，相对路径会解析错）
+    /// 2) 拦截 fetch / XHR / 动态插入的 img|a|link，全部转成本地代理路径
+    /// 原版靠 shouldInterceptRequest 天然做到，iOS 只能这样补。
+    static let proxyShimJS = #"""
+    (function(){
+      if (window.__PXVR_SHIM__) return; window.__PXVR_SHIM__ = 1;
+      var BASE = window.__PXVR_BASE__ || location.origin;
+      function map(u){
+        try{
+          if(!u) return u;
+          var s = String(u);
+          if(s.indexOf('data:')===0||s.indexOf('blob:')===0||s.indexOf('javascript:')===0) return u;
+          if(s.indexOf('/p?u=')===0) return u;
+          var abs = new URL(s, BASE).href;
+          if(!/^https?:/.test(abs)) return u;
+          return '/p?u=' + encodeURIComponent(abs);
+        }catch(e){ return u; }
+      }
+      var of = window.fetch;
+      if(of){ window.fetch = function(input, init){
+        try{
+          if(typeof input === 'string'){ input = map(input); }
+          else if(input && input.url){ input = new Request(map(input.url), input); }
+        }catch(e){}
+        return of.call(this, input, init);
+      };}
+      var oo = XMLHttpRequest.prototype.open;
+      XMLHttpRequest.prototype.open = function(m,u){
+        try{ arguments[1] = map(u); }catch(e){}
+        return oo.apply(this, arguments);
+      };
+      function fixNode(n){
+        try{
+          if(!n || n.nodeType !== 1) return;
+          ['src','href','poster','action'].forEach(function(attr){
+            var v = n.getAttribute && n.getAttribute(attr);
+            if(v && /^https?:\/\//.test(v) && v.indexOf('/p?u=') !== 0){
+              n.setAttribute(attr, map(v));
+            }
+          });
+          var ss = n.getAttribute && n.getAttribute('srcset');
+          if(ss && ss.indexOf('http') >= 0){
+            n.setAttribute('srcset', ss.split(',').map(function(p){
+              var t = p.trim().split(/\s+/);
+              return map(t[0]) + (t[1] ? ' ' + t[1] : '');
+            }).join(', '));
+          }
+          if(n.querySelectorAll){ n.querySelectorAll('img,script,link,source').forEach(fixNode); }
+        }catch(e){}
+      }
+      document.addEventListener('DOMContentLoaded', function(){
+        document.querySelectorAll('img,script,link,source,a').forEach(fixNode);
+      });
+      try{
+        new MutationObserver(function(ms){
+          ms.forEach(function(m){
+            if(m.type === 'attributes'){ fixNode(m.target); }
+            else { m.addedNodes.forEach(fixNode); }
+          });
+        }).observe(document.documentElement || document, {
+          childList:true, subtree:true, attributes:true,
+          attributeFilter:['src','href','srcset','poster']
+        });
+      }catch(e){}
+    })();
+    """#
+
+    /// 只透传对浏览器有意义的头；Set-Cookie 需要改写
+    private static func forwardableHeaders(_ src: [String: String]) -> [String: String] {
+        var out: [String: String] = [:]
+        for key in ["cache-control", "expires", "etag", "last-modified", "content-disposition"] {
+            if let v = src[key] { out[key.capitalized] = v }
+        }
+        if let sc = src["set-cookie"] {
+            out["Set-Cookie"] = normalizeCookie(sc)
+            PXVRLogger.info("[proxy] 下发 cookie \(sc.prefix(40))")
+        }
+        if let loc = src["location"] { out["Location"] = loc }
+        return out
+    }
+
+    /// 代理是 http://127.0.0.1，原站的 Domain=.pixiv.net 会被浏览器拒收。
+    /// 去掉 Domain / Secure / SameSite，让它变成 host-only 落到 127.0.0.1。
+    private static func normalizeCookie(_ raw: String) -> String {
+        var parts = raw.split(separator: ";").map { $0.trimmingCharacters(in: .whitespaces) }
+        parts.removeAll { p in
+            let l = p.lowercased()
+            return l.hasPrefix("domain=") || l == "secure" || l.hasPrefix("samesite=")
+        }
+        return parts.joined(separator: "; ")
     }
 
     // MARK: - URL 编解码与改写
@@ -334,31 +441,92 @@ final class PXVRProxyServer {
     }
 
     /// 把页面里的链接改写成本地代理路径
+    /// 只改写「属性里的 URL」和「CSS 里的 url()」，**不动脚本内容**。
+    /// 原版从不改页面内容（靠 WebView 拦截请求），我们只能改链接；
+    /// 一旦把 <script> 里的字符串也换掉，JS 解析 URL 的逻辑就会坏。
     static func rewrite(_ html: String, base: URL) -> String {
         var out = html
 
-        // 1) 绝对地址：https://x/y → /p?u=...
-        if let re = try? NSRegularExpression(pattern: "https?://[^\\s\"'<>()]+") {
+        // 1) 属性：src / href / action / poster / data-src
+        if let re = try? NSRegularExpression(
+            pattern: "(src|href|action|poster|data-src)\\s*=\\s*([\"'])([^\"']*)\\2",
+            options: [.caseInsensitive]) {
             out = replaceAll(out, re) { match in
-                proxyPath(match) ?? match
+                // match 形如  src="/x"  —— 拆出属性名和值
+                guard let eq = match.range(of: "=") else { return match }
+                let name = String(match[..<eq.lowerBound])
+                var rest = String(match[eq.upperBound...])
+                guard let q = rest.first, q == "\"" || q == "'" else { return match }
+                rest.removeFirst()
+                if rest.hasSuffix(String(q)) { rest.removeLast() }
+                let value = rest
+                guard let mapped = mapURL(value, base: base), mapped != value else { return match }
+                return "\(name)=\(q)\(mapped)\(q)"
             }
         }
 
-        // 2) 根相对地址：href="/x" → href="/p?u=<origin>/x"
-        if let scheme = base.scheme, let host = base.host,
-           let re2 = try? NSRegularExpression(pattern: "(?:href|src|action)=\"(/[^\"]*)\"") {
-            let origin = "\(scheme)://\(host)"
-            out = replaceAll(out, re2) { match in
-                guard let eq = match.range(of: "=\"") else { return match }
-                let attr = String(match[..<eq.lowerBound])          // href / src / action
-                var value = String(match[eq.upperBound...])         // /x"
-                if value.hasSuffix("\"") { value.removeLast() }
-                if value.hasPrefix("/p?u=") { return match }        // 已经是代理路径
-                let encoded = proxyPath(origin + value) ?? value
-                return "\(attr)=\"\(encoded)\""
+        // 2) srcset：逗号分隔的多地址
+        if let re = try? NSRegularExpression(
+            pattern: "srcset\\s*=\\s*([\"'])([^\"']*)\\1", options: [.caseInsensitive]) {
+            out = replaceAll(out, re) { match in
+                guard let q1 = match.firstIndex(of: "=") else { return match }
+                let head = String(match[...q1])
+                var rest = String(match[match.index(after: q1)...])
+                guard let q = rest.first else { return match }
+                rest.removeFirst()
+                if rest.hasSuffix(String(q)) { rest.removeLast() }
+                let items = rest.split(separator: ",").map { piece -> String in
+                    let t = piece.trimmingCharacters(in: .whitespaces)
+                    var comps = t.split(separator: " ").map(String.init)
+                    if let first = comps.first, let m = mapURL(first, base: base) {
+                        comps[0] = m
+                    }
+                    return comps.joined(separator: " ")
+                }
+                return "\(head)\(q)\(items.joined(separator: ", "))\(q)"
             }
         }
+
+        // 3) CSS 里的 url(...)：<style> 与内联 style 都覆盖
+        if let re = try? NSRegularExpression(pattern: "url\\(\\s*([\"']?)([^)\"']+)\\1\\s*\\)",
+                                             options: [.caseInsensitive]) {
+            out = replaceAll(out, re) { match in
+                guard let l = match.firstIndex(of: "(") else { return match }
+                var v = String(match[match.index(after: l)...])
+                if v.hasSuffix(")") { v.removeLast() }
+                let quoted = v.hasPrefix("\"") || v.hasPrefix("'")
+                let q = quoted ? String(v.first!) : ""
+                if quoted { v.removeFirst(); if v.hasSuffix(q) { v.removeLast() } }
+                guard let mapped = mapURL(v, base: base), mapped != v else { return match }
+                return "url(\(q)\(mapped)\(q))"
+            }
+        }
+
         return out
+    }
+
+    /// 单个 URL 转代理路径；不需要改的返回原值
+    private static func mapURL(_ raw: String, base: URL) -> String? {
+        let v = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if v.isEmpty { return nil }
+        let lower = v.lowercased()
+        if lower.hasPrefix("data:") || lower.hasPrefix("blob:")
+            || lower.hasPrefix("javascript:") || lower.hasPrefix("mailto:")
+            || lower.hasPrefix("about:") || lower.hasPrefix("#")
+            || lower.hasPrefix("/p?u=") { return nil }
+        if lower.hasPrefix("http://") || lower.hasPrefix("https://") {
+            return proxyPath(v)
+        }
+        if v.hasPrefix("/") {
+            let origin = "\(base.scheme ?? "https")://\(base.host ?? "")"
+            return proxyPath(origin + v)
+        }
+        // 相对路径：按当前页面地址解析
+        if let abs = URL(string: v, relativeTo: base)?.absoluteString,
+           abs.hasPrefix("http") {
+            return proxyPath(abs)
+        }
+        return nil
     }
 
     /// 用正则逐段替换
