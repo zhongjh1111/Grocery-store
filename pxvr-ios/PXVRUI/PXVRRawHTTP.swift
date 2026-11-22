@@ -72,8 +72,9 @@ enum PXVRRawHTTP {
         // 拼请求
         var req = "\(method) \(path) HTTP/1.1\r\n"
         for (k, v) in headers { req += "\(k): \(v)\r\n" }
-        if let b = body, !b.isEmpty {
-            req += "Content-Length: \(b.count)\r\n"
+        // POST/PUT 即使空体也要带长度，否则部分服务端直接 411
+        if method != "GET" && method != "HEAD" {
+            req += "Content-Length: \(body?.count ?? 0)\r\n"
         }
         req += "\r\n"
         var payload = Data(req.utf8)

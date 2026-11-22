@@ -59,14 +59,18 @@ final class PXVRRouter {
     /// bd*：屏蔽的域名（命中直接返回空）
     private(set) var blocked: [NSRegularExpression] = []
 
+    /// 路由表会被多个连接并发读、配置刷新时并发写，必须加锁
+    private let lock = NSRecursiveLock()
     private var failedAt: [String: Date] = [:]
     private let failCooldown: TimeInterval = 600
 
     func markFailed(_ address: String) {
+        lock.lock(); defer { lock.unlock() }
         failedAt[address] = Date()
     }
 
     private func isCoolingDown(_ address: String) -> Bool {
+        lock.lock(); defer { lock.unlock() }
         guard let t = failedAt[address] else { return false }
         return Date().timeIntervalSince(t) < failCooldown
     }
@@ -169,6 +173,7 @@ final class PXVRRouter {
 
     /// 主路由；nil 表示直连
     func route(for host: String) -> Route? {
+        lock.lock(); defer { lock.unlock() }
         if let r = exact[host] { return r }
         let range = NSRange(location: 0, length: (host as NSString).length)
         for (re, r) in patterns where re.firstMatch(in: host, range: range) != nil {
@@ -186,6 +191,7 @@ final class PXVRRouter {
     /// 实测 #pxf 下发的裸 token 会被节点拒绝（302 → errors-auth.html），
     /// 而 #ht 的 X-pxk 一直可用，所以把 #ht 作为最后兜底。
     func chain(for host: String) -> [Route] {
+        lock.lock(); defer { lock.unlock() }
         var out: [Route] = []
         func add(_ r: Route?) {
             guard let r = r else { return }
@@ -200,6 +206,7 @@ final class PXVRRouter {
 
     /// 命中的注入脚本（没有则 nil）
     func injection(for url: String) -> String? {
+        lock.lock(); defer { lock.unlock() }
         let range = NSRange(location: 0, length: (url as NSString).length)
         for (re, scripts) in injections where re.firstMatch(in: url, range: range) != nil {
             return scripts
@@ -209,6 +216,7 @@ final class PXVRRouter {
 
     /// 是否属于要屏蔽的域名
     func isBlocked(_ url: String) -> Bool {
+        lock.lock(); defer { lock.unlock() }
         let range = NSRange(location: 0, length: (url as NSString).length)
         for re in blocked where re.firstMatch(in: url, range: range) != nil { return true }
         return false
@@ -216,6 +224,7 @@ final class PXVRRouter {
 
     /// 把正文里的旧图片域名换成新域名（hnrw）
     func rewriteHosts(_ text: String) -> String {
+        lock.lock(); defer { lock.unlock() }
         var out = text
         for (from, to) in hostRewrites where from != to {
             out = out.replacingOccurrences(of: "//\(from)/", with: "//\(to)/")

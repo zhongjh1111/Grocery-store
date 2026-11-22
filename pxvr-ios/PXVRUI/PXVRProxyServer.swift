@@ -188,20 +188,19 @@ final class PXVRProxyServer {
             path += "?" + q
         }
 
-        // UA 用 WebView 自己发来的（对应原版 settings.getUserAgentString()），
-        // 拿不到才退回内置串
-        var hdrs: [String: String] = [
-            "Host": host,
-            "User-Agent": clientHeaders["User-Agent"] ?? Self.browserUA,
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-            "Accept-Language": "ja,en;q=0.9",
-            "Accept-Encoding": "identity",
-            "Connection": "close",
-        ]
+        // 原样透传浏览器的头（X-CSRF-Token / Origin / X-Requested-With 等缺一不可，
+        // 少一个 pixiv 的 ajax 就回 400/422），只剔除逐跳头后重写关键项。
+        var hdrs: [String: String] = [:]
+        let hopByHop: Set<String> = ["host", "connection", "content-length", "accept-encoding",
+                                     "keep-alive", "proxy-connection", "transfer-encoding", "te", "trailer"]
+        for (k, v) in clientHeaders where !hopByHop.contains(k.lowercased()) {
+            hdrs[k] = v
+        }
+        hdrs["Host"] = host
+        hdrs["Accept-Encoding"] = "identity"      // 不压缩，省得解 gzip
+        hdrs["Connection"] = "close"
+        if hdrs["User-Agent"] == nil { hdrs["User-Agent"] = Self.browserUA }
         if let n = r.headerName, let v = r.headerValue { hdrs[n] = v }
-        if let ct = clientHeaders["Content-Type"] { hdrs["Content-Type"] = ct }
-        if let ck = clientHeaders["Cookie"] { hdrs["Cookie"] = ck }
-        if let rf = clientHeaders["Referer"] { hdrs["Referer"] = rf }
 
         PXVRLogger.info("[proxy] 路由 \(host) → \(r.address)  (\(r.headerName ?? "直连IP"))")
 
@@ -216,6 +215,22 @@ final class PXVRProxyServer {
 
                 // 302/4xx/5xx 说明这个节点不通（鉴权失败也是 302），换下一个
                 if resp.status >= 300 {
+                    // 节点鉴权失败的长这样：302 → https://h.b00k.pw/errors-auth.html
+                    let loc = resp.headers["location"] ?? ""
+                    let isNodeAuthFail = loc.contains("errors-auth") || loc.contains("b00k.pw")
+
+                    // 真正的跳转（如 /login.php → /login）原样交给 WebView，
+                    // 但改写成代理路径，避免跳出代理
+                    if resp.status < 400, !loc.isEmpty, !isNodeAuthFail {
+                        let abs = URL(string: loc, relativeTo: target)?.absoluteString ?? loc
+                        let fixed = Self.proxyPath(abs) ?? loc
+                        PXVRLogger.info("[proxy] 跳转 \(resp.status) → \(abs.prefix(70))")
+                        self.respond(conn, status: resp.status, reason: "Redirect",
+                                     mime: "text/html", body: resp.body,
+                                     headers: ["Location": fixed])
+                        return
+                    }
+
                     self.router.markFailed(r.address)
                     if !rest.isEmpty {
                         PXVRLogger.info("[proxy] \(r.address) 返回 \(resp.status)，换下一个 → \(rest[0].address)")
