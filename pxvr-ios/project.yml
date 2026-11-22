@@ -81,6 +81,9 @@ targets:
       - path: PXVRConfig.swift
       - path: PXVRTransport.swift
       - path: PXVRNetwork.swift
+      # 本地数据层：书签 / 历史 / 下载 / 设置
+      - path: PXVR/Managers/DataManager.swift
+      - path: PXVR/Models/Models.swift
       # 构建时注入的 p12 与密钥（CI 从 Secret 写入，xcodegen 前就位）
       - path: PXVRUI/Resources
     settings:
