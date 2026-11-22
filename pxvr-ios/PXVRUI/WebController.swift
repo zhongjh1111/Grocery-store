@@ -29,7 +29,10 @@ final class WebController: NSObject, ObservableObject {
         do { try logText.write(to: url, atomically: true, encoding: .utf8); return url }
         catch { return nil }
     }
-    @Published var isLoggedIn = false
+    /// 登录状态持久化（原版也存在本地，重启后仍是已登录）
+    @Published var isLoggedIn: Bool = UserDefaults.standard.bool(forKey: "pxvr.loggedIn") {
+        didSet { UserDefaults.standard.set(isLoggedIn, forKey: "pxvr.loggedIn") }
+    }
 
     /// 最近一次请求的真实地址（webView.url 是代理地址，不能复用）
     private var lastRequested: String = ""
@@ -195,14 +198,16 @@ final class WebController: NSObject, ObservableObject {
                 await MainActor.run { self.append("[login] 失败（见上方 /um 响应）") }
                 return
             }
-            // r=0 才是成功；r=1 是服务器拒绝
-            let code = (r["r"] as? Int) ?? (r["r"] as? String).flatMap(Int.init) ?? -1
-            guard code == 0 else {
-                await MainActor.run { self.append("[login] 服务器返回 r=\(code)，登录失败") }
+            // r=0 成功；r=-1 且带「已登录」= 这个设备 key 本来就有有效会话（不用重复登录）
+            let code = (r["r"] as? Int) ?? (r["r"] as? String).flatMap(Int.init) ?? -99
+            let msg = (r["m"] as? String) ?? ""
+            let alreadyIn = msg.contains("已登录")
+            guard code == 0 || (code == -1 && alreadyIn) else {
+                await MainActor.run { self.append("[login] 服务器返回 r=\(code) \(msg)，登录失败") }
                 return
             }
             await MainActor.run {
-                self.append("[login] 登录成功")
+                self.append(alreadyIn ? "[login] 该设备已有会话（已登录）" : "[login] 登录成功")
                 self.isLoggedIn = true
             }
             // 登录后再拉一次 /xc：完整配置（含 pixiv 全部主机 + ralt）只有登录后才下发。
@@ -222,6 +227,7 @@ final class WebController: NSObject, ObservableObject {
     func logout() {
         isLoggedIn = false
         PXVRKeychain.clear()
+        PXVRNetwork.clearStoredKey()
         append("[login] 已退出登录")
     }
 
