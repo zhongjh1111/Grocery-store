@@ -200,6 +200,19 @@ final class PXVRProxyServer {
         hdrs["Accept-Encoding"] = "identity"      // 不压缩，省得解 gzip
         hdrs["Connection"] = "close"
         if hdrs["User-Agent"] == nil { hdrs["User-Agent"] = Self.browserUA }
+
+        // 页面跑在 127.0.0.1 上，Referer/Origin 会变成内网地址。
+        // pixiv 图床校验来源，这里统一换成站点真实地址。
+        if let ref = hdrs["Referer"], ref.contains("127.0.0.1") {
+            hdrs["Referer"] = "https://www.pixiv.net/"
+        }
+        if let org = hdrs["Origin"], org.contains("127.0.0.1") {
+            hdrs["Origin"] = "https://www.pixiv.net"
+        }
+        if hdrs["Referer"] == nil, host.contains("pximg.net") {
+            hdrs["Referer"] = "https://www.pixiv.net/"
+        }
+
         if let n = r.headerName, let v = r.headerValue { hdrs[n] = v }
 
         PXVRLogger.info("[proxy] 路由 \(host) → \(r.address)  (\(r.headerName ?? "直连IP"))")
@@ -359,6 +372,7 @@ final class PXVRProxyServer {
           var s = String(u);
           if(s.indexOf('data:')===0||s.indexOf('blob:')===0||s.indexOf('javascript:')===0) return u;
           if(s.indexOf('/p?u=')===0) return u;
+          if(s.charAt(0) === '#') return u;
           var abs = new URL(s, BASE).href;
           if(!/^https?:/.test(abs)) return u;
           return '/p?u=' + encodeURIComponent(abs);
@@ -391,8 +405,9 @@ final class PXVRProxyServer {
           if(!n || n.nodeType !== 1) return;
           ['src','href','poster','action'].forEach(function(attr){
             var v = n.getAttribute && n.getAttribute(attr);
-            if(v && /^https?:\/\//.test(v) && v.indexOf('/p?u=') !== 0){
-              n.setAttribute(attr, map(v));
+            if(v && v.indexOf('/p?u=') !== 0){
+              var mv = map(v);
+              if(mv !== v){ n.setAttribute(attr, mv); }
             }
           });
           var ss = n.getAttribute && n.getAttribute('srcset');
@@ -405,9 +420,13 @@ final class PXVRProxyServer {
           if(n.querySelectorAll){ n.querySelectorAll('img,script,link,source').forEach(fixNode); }
         }catch(e){}
       }
-      document.addEventListener('DOMContentLoaded', function(){
-        document.querySelectorAll('img,script,link,source,a').forEach(fixNode);
-      });
+      function sweep(){
+        try{ document.querySelectorAll('img,script,link,source,a').forEach(fixNode); }catch(e){}
+      }
+      document.addEventListener('DOMContentLoaded', sweep);
+      window.addEventListener('load', sweep);
+      var n = 0;
+      var timer = setInterval(function(){ sweep(); if(++n > 12) clearInterval(timer); }, 800);
       try{
         new MutationObserver(function(ms){
           ms.forEach(function(m){

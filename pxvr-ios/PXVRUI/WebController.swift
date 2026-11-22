@@ -275,6 +275,22 @@ final class WebController: NSObject, ObservableObject {
 
 // MARK: - 导航
 
+extension WebController: WKUIDelegate {
+
+    /// 页面用 window.open / target=_blank 打开的链接（pixiv 的登录按钮就是这样），
+    /// 没有这个回调会「点了没反应」。这里直接在本 WebView 打开。
+    func webView(_ webView: WKWebView,
+                 createWebViewWith configuration: WKWebViewConfiguration,
+                 for navigationAction: WKNavigationAction,
+                 windowFeatures: WKWindowFeatures) -> WKWebView? {
+        if let url = navigationAction.request.url {
+            append("[web] 新窗口 → 就地打开 \(url.absoluteString.prefix(70))")
+            load(url.absoluteString)
+        }
+        return nil
+    }
+}
+
 extension WebController: WKNavigationDelegate {
 
     /// 等价替代 Android 的透明代理：
@@ -342,29 +358,6 @@ extension WebController: WKNavigationDelegate {
 }
 
 // MARK: - 页面弹窗
-
-extension WebController: WKUIDelegate {
-
-    func webView(_ webView: WKWebView,
-                 createWebViewWith configuration: WKWebViewConfiguration,
-                 for navigationAction: WKNavigationAction,
-                 windowFeatures: WKWindowFeatures) -> WKWebView? {
-        if navigationAction.targetFrame == nil {
-            webView.load(navigationAction.request)
-        }
-        return nil
-    }
-
-    func webView(_ webView: WKWebView,
-                 runJavaScriptAlertPanelWithMessage message: String,
-                 initiatedByFrame frame: WKFrameInfo,
-                 completionHandler: @escaping () -> Void) {
-        append("[web] alert: \(message)")
-        completionHandler()
-    }
-}
-
-// MARK: - 桥的接收方
 
 extension WebController: PXVRWebBridgeDelegate {
 

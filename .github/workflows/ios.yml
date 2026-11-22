@@ -107,6 +107,9 @@ jobs:
   build-ipa:
     # macos-14 在本仓库不可用（1 秒即被取消），改回 macos-15
     runs-on: macos-15
+    env:
+      # 浅克隆下 git rev-list --count 恒为 1，用运行序号才真正递增
+      PXVR_BUILD_NUM: ${{ github.run_number }}
     # 去掉 needs: build-and-test —— 测试任务被取消时也要能出包
     timeout-minutes: 25
     env:
@@ -140,17 +143,15 @@ jobs:
 
       - name: 构建 PXVRUI（Release / 真机 / 不签名）
         run: |
-          # 版本号按提交数自增，避免永远显示 1.0
-          BUILD_NUM=$(git rev-list --count HEAD)
-          echo "本次版本: 1.$BUILD_NUM ($BUILD_NUM)"
+          echo "本次版本: 1.$PXVR_BUILD_NUM ($PXVR_BUILD_NUM)"
           xcodebuild build \
             -project PXVR.xcodeproj \
             -scheme PXVRUI \
             -configuration Release \
             -sdk iphoneos \
             -derivedDataPath build \
-            MARKETING_VERSION="1.$BUILD_NUM" \
-            CURRENT_PROJECT_VERSION="$BUILD_NUM" \
+            MARKETING_VERSION="1.$PXVR_BUILD_NUM" \
+            CURRENT_PROJECT_VERSION="$PXVR_BUILD_NUM" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
@@ -170,12 +171,11 @@ jobs:
 
           # 版本号在这里直接写进 plist（Xcode 的 $(MARKETING_VERSION) 没生效），
           # 必须在 codesign 之前改，否则会破坏签名
-          BUILD_NUM=$(git rev-list --count HEAD)
-          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 1.$BUILD_NUM" \
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 1.$PXVR_BUILD_NUM" \
             Payload/PXVRUI.app/Info.plist
-          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUM" \
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $PXVR_BUILD_NUM" \
             Payload/PXVRUI.app/Info.plist
-          echo "已写入版本 1.$BUILD_NUM"
+          echo "已写入版本 1.$PXVR_BUILD_NUM"
           # ad-hoc 签名 + 注入 entitlements。
           # 没有 application-identifier 会被 iOS 拒绝："Application is missing the application-identifier entitlement"
           codesign --force --sign - \
