@@ -128,11 +128,12 @@ final class PXVRNetwork {
         let p = PXVRDeviceProfile.shared
         // 服务端下发的登记号要原样回传（原版 ws0.t("rd")）
         let rd = UserDefaults.standard.string(forKey: "pxvr.rd") ?? "0"
+        let reportStatsOn = UserDefaults.standard.bool(forKey: "pxvr.reportStats")
         let stats = PXVRNodeStats.shared
         var payload: [String: Any] = [
             "k": key,                       // 设备 key（/xk 下发的 "id"），服务端依此关联会话
-            "r": rd,                        // 上次服务端下发的 rd
-            "t": stats.traffic,             // 累计流量，原版 ws0.u()
+            "r": reportStatsOn ? rd : "0",  // 默认回退 v74 行为
+            "t": reportStatsOn ? stats.traffic : 0,   // 累计流量，原版 ws0.u()
             "c": "wd",
             "v": p.appVersion,              // 对应 Android v 字段（原始 APK 上报 20260606）
             "s": p.sdkInt,                  // 对应 Build.VERSION.SDK_INT
@@ -140,9 +141,14 @@ final class PXVRNetwork {
             "d": self.deviceFlag,          // 对应 dm 标记；干净 iOS 设备为 0，与未 root 的 Android 一致
             "wv": p.webViewVersion          // iOS 上无 net.ngee.wv 伴生 APK，固定 ""
         ]
-        // 节点质量上报（原版 ws0.b() / ws0.c()），服务端据此调度路线
-        if let f = stats.reportF() { payload["f"] = f }
-        if let sr = stats.reportSR() { payload["sr"] = sr }
+        // 节点质量上报（原版 ws0.b() / ws0.c()），服务端据此调度路线。
+        // 默认关闭：v31 实测怀疑这几个字段触发了服务端的风控（回 krv=200 直接退出）。
+        // 调试页可打开验证：UserDefaults 设 pxvr.reportStats = true
+        let reportStats = UserDefaults.standard.bool(forKey: "pxvr.reportStats")
+        if reportStats {
+            if let f = stats.reportF() { payload["f"] = f }
+            if let sr = stats.reportSR() { payload["sr"] = sr }
+        }
         guard let resp = await callAPI(baseURL: baseURL, path: PXVRConstants.pathDeviceAuth, payload: payload) else {
             return nil
         }
@@ -152,6 +158,8 @@ final class PXVRNetwork {
             UserDefaults.standard.set(rd, forKey: "pxvr.rd")
             PXVRLogger.info("[xc] 记录登记号 rd=\(rd)")
         }
+        // 落盘一份，万一触发杀开关退出，重启后还能查到当时服务端回的是什么
+        Self.persistLastXC(resp)
         if let krv = resp["krv"] as? Int, krv == 200 {
             PXVRLogger.warning("/xc 收到吊销指令 krv=200，清库并退出")
             Self.clearLocalData()
@@ -176,6 +184,15 @@ final class PXVRNetwork {
         let resp = await callAPI(baseURL: baseURL, path: q, payload: [:])
         PXVRLogger.info("/\(path) 响应: \(String(describing: resp))")
         return resp
+    }
+
+    /// 把最近一次 /xc 明文响应写到 Documents，便于退出后排查
+    private static func persistLastXC(_ resp: [String: Any]) {
+        guard let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+        let url = dir.appendingPathComponent("last-xc.json")
+        if let data = try? JSONSerialization.data(withJSONObject: resp, options: [.prettyPrinted]) {
+            try? data.write(to: url)
+        }
     }
 
     /// 设备 key 持久化（对应原版 ws0.q0("k", ...) / ws0.t("k")）

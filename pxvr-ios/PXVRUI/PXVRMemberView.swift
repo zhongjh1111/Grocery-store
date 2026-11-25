@@ -23,6 +23,7 @@ struct PXVRMemberView: View {
     @State private var email = PXVRKeychain.load().email
     @State private var showNote = true
     @State private var showLogin = false
+    @State private var didLoad = false
 
     private var expireText: String {
         controller.premiumExpire.isEmpty ? "—" : controller.premiumExpire
@@ -63,10 +64,10 @@ struct PXVRMemberView: View {
             PXVRLoginView(controller: controller)
         }
         .onAppear {
-            if controller.isLoggedIn {
-                controller.loadPremium()
-                controller.loadDevices()
-            }
+            guard !didLoad, controller.isLoggedIn else { return }
+            didLoad = true
+            controller.loadPremium()
+            controller.loadDevices()
         }
     }
 
@@ -241,7 +242,10 @@ struct PXVRMemberView: View {
         for k in ["t", "time", "ctime", "d"] {
             if let v = d[k] as? String, !v.isEmpty { return v }
             if let v = d[k] as? Int {
-                let date = Date(timeIntervalSince1970: TimeInterval(v > 1_000_000_000 ? v : v / 1000))
+                // 只接受合理区间（2000-01-01 ~ 2100-01-01），防止异常值把 Date 搞崩
+                let sec = v > 1_000_000_000 ? v : v / 1000
+                guard sec > 946_684_800, sec < 4_102_444_800 else { return "" }
+                let date = Date(timeIntervalSince1970: TimeInterval(sec))
                 let f = DateFormatter()
                 f.dateFormat = "yyyy年M月d日 HH:mm:ss"
                 return f.string(from: date)
