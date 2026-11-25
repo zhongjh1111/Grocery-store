@@ -30,8 +30,10 @@ final class WebController: NSObject, ObservableObject {
         catch { return nil }
     }
     /// 登录状态持久化（原版也存在本地，重启后仍是已登录）
-    /// 大会员到期时间（/pm i=x）
+    /// 大会员到期时间（来自配置 m_x）
     @Published var premiumExpire: String = ""
+    /// 会员状态（来自配置 m_s）
+    @Published var premiumState: Int = 0
     /// 设备列表（/um a=j）
     @Published var devices: [[String: Any]] = []
     /// 在线额度说明
@@ -170,6 +172,7 @@ final class WebController: NSObject, ObservableObject {
                 }
                 // 把 /xc 下发的配置交给路由表，代理才知道每个域名走哪个节点
                 if let cfg = result.config, !cfg.isEmpty {
+                    self.applyMembership(cfg)
                     PXVRProxyServer.shared.loadConfig(cfg)
                     self.append("[proxy] 路由配置已更新（\(cfg.count) 字段）")
                 }
@@ -184,6 +187,28 @@ final class WebController: NSObject, ObservableObject {
                     self.append("[net] 握手结束但没有下发主页面（mp/hp 为空）")
                 }
             }
+        }
+    }
+
+    /// 会员状态来自配置：m_s = 状态，m_x = 到期时间戳（秒）
+    /// 对应原版 ws0.B() 与 ws0.w()
+    func applyMembership(_ cfg: [String: Any]) {
+        if let ms = cfg["m_s"] as? Int { self.premiumState = ms }
+        else if let ms = cfg["m_s"] as? String, let v = Int(ms) { self.premiumState = v }
+
+        var expireSec: Int64 = 0
+        if let v = cfg["m_x"] as? Int64 { expireSec = v }
+        else if let v = cfg["m_x"] as? Int { expireSec = Int64(v) }
+        else if let v = cfg["m_x"] as? String, let n = Int64(v) { expireSec = n }
+
+        if expireSec > 0, Double(expireSec) > Date().timeIntervalSince1970 {
+            let f = DateFormatter()
+            f.dateFormat = "yyyy年M月d日 HH:mm:ss"
+            self.premiumExpire = f.string(from: Date(timeIntervalSince1970: Double(expireSec)))
+            self.append("[member] 到期时间 \(self.premiumExpire)（m_s=\(self.premiumState)）")
+        } else {
+            self.premiumExpire = ""
+            self.append("[member] m_x=\(expireSec)，m_s=\(self.premiumState)")
         }
     }
 
@@ -273,6 +298,7 @@ final class WebController: NSObject, ObservableObject {
             // await 必须在 MainActor.run 之外，否则闭包是同步的，编译不过。
             if let cfg = await PXVRNetwork.shared.performXC(baseURL: base) {
                 await MainActor.run {
+                    self.applyMembership(cfg)
                     PXVRProxyServer.shared.loadConfig(cfg)
                     self.append("[proxy] 登录后配置刷新：\(cfg.count) 字段，ph=\(cfg["ph"] ?? "?")，ralt=\(cfg["ralt"] ?? "?")")
                     // 配置到位后重开当前页面，之前 502 的那次会重试成功
