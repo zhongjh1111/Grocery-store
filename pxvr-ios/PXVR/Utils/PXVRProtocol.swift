@@ -86,6 +86,10 @@ final class PXVRProtocol {
 
     private var aesKey: [UInt8]      // 32 字节
     private var counter: [UInt8]    // 16 字节，大端
+
+    /// DRBG 是有状态的，多线程同时加解密会互相踩（实测 EXC_BREAKPOINT）。
+    /// 所有入口串行化。
+    private let lock = NSRecursiveLock()
     private(set) var gIV: [UInt8] = []   // 报文 IV，init 后固定
 
     // MARK: - 初始化
@@ -117,6 +121,7 @@ final class PXVRProtocol {
 
     /// 丢弃当前 DRBG 状态并重新播种（对应原 reset()）
     func reset() {
+        lock.lock(); defer { lock.unlock() }
         var buf = [UInt8](repeating: 0, count: 48)
         let st = SecRandomCopyBytes(kSecRandomDefault, buf.count, &buf)
         precondition(st == errSecSuccess, "SecRandomCopyBytes 失败")
@@ -128,6 +133,7 @@ final class PXVRProtocol {
 
     /// 明文 JSON 字典 → `q=` 字段需要的 hex
     func encodeJSON(_ obj: [String: Any]) -> String? {
+        lock.lock(); defer { lock.unlock() }
         guard let data = try? JSONSerialization.data(withJSONObject: obj, options: []) else {
             PXVRLogger.warning("[proto] JSON 序列化失败")
             return nil
@@ -138,6 +144,7 @@ final class PXVRProtocol {
 
     /// 响应 hex → 明文 JSON 字典
     func decodeJSON(_ hex: String) -> [String: Any]? {
+        lock.lock(); defer { lock.unlock() }
         guard let bytes = Self.bytes(fromHex: hex) else {
             PXVRLogger.warning("[proto] 响应 hex 非法")
             return nil
@@ -189,6 +196,7 @@ final class PXVRProtocol {
     /// 把明文编码成 `q=` 字段需要的 hex 字符串。
     /// - Parameter timestamp: 仅测试用；nil 表示取当前时间。
     func encode(_ plaintext: Data, timestamp: Int? = nil) -> String {
+        lock.lock(); defer { lock.unlock() }
         let keyMaterial = generate(32)
         update()
 
