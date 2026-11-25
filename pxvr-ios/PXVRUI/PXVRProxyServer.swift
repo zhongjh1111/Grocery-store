@@ -217,6 +217,7 @@ final class PXVRProxyServer {
 
         PXVRLogger.info("[proxy] 路由 \(host) → \(r.address)  (\(r.headerName ?? "直连IP"))")
 
+        let startedAt = Date()
         Task {
             do {
                 let resp = try await PXVRRawHTTP.request(
@@ -224,7 +225,15 @@ final class PXVRProxyServer {
                     headers: hdrs,
                     body: (method == "GET" || method == "HEAD") ? nil : body)
 
-                PXVRLogger.info("[proxy] ← \(resp.status)  \(resp.body.count) 字节  \(host)\(path.prefix(30))")
+                let ms = Int(Date().timeIntervalSince(startedAt) * 1000)
+                PXVRLogger.info("[proxy] ← \(resp.status)  \(resp.body.count) 字节  \(host)\(path.prefix(30))  \(ms)ms")
+
+                // 回填节点统计，供下一次 /xc 的 f / sr 上报
+                if resp.status < 400 {
+                    PXVRNodeStats.shared.recordSuccess(address: r.address, latencyMs: ms, bytes: resp.body.count)
+                } else {
+                    PXVRNodeStats.shared.recordFailure(address: r.address, latencyMs: ms)
+                }
 
                 // 302/4xx/5xx 说明这个节点不通（鉴权失败也是 302），换下一个
                 if resp.status >= 300 {

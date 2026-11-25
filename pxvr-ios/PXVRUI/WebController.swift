@@ -30,6 +30,13 @@ final class WebController: NSObject, ObservableObject {
         catch { return nil }
     }
     /// 登录状态持久化（原版也存在本地，重启后仍是已登录）
+    /// 大会员到期时间（/pm i=x）
+    @Published var premiumExpire: String = ""
+    /// 设备列表（/um a=j）
+    @Published var devices: [[String: Any]] = []
+    /// 在线额度说明
+    @Published var deviceQuota: String = ""
+
     @Published var isLoggedIn: Bool = UserDefaults.standard.bool(forKey: "pxvr.loggedIn") {
         didSet { UserDefaults.standard.set(isLoggedIn, forKey: "pxvr.loggedIn") }
     }
@@ -177,6 +184,58 @@ final class WebController: NSObject, ObservableObject {
                     self.append("[net] 握手结束但没有下发主页面（mp/hp 为空）")
                 }
             }
+        }
+    }
+
+    /// 拉大会员信息：原版 /pm {i:"x"}
+    func loadPremium() {
+        guard let base = activeServer else { return }
+        Task {
+            let r = await PXVRNetwork.shared.call("pm", params: [("i", "x")], baseURL: base)
+            await MainActor.run {
+                if let d = r?["d"] as? [String: Any] {
+                    // 到期时间字段名待确认，逐一尝试
+                    let keys = ["e", "ed", "expire", "exp", "t"]
+                    for k in keys {
+                        if let v = d[k] as? String, !v.isEmpty { self.premiumExpire = v; break }
+                        if let v = d[k] as? Int { self.premiumExpire = String(v); break }
+                    }
+                    if self.premiumExpire.isEmpty {
+                        self.append("[pm] 字段: \(d.keys.sorted())")
+                        self.premiumExpire = d.isEmpty ? "" : "\(d)"
+                    }
+                } else if let r = r {
+                    self.append("[pm] 响应: \(r)")
+                }
+            }
+        }
+    }
+
+    /// 拉设备列表：原版 /um {a:"j"} → {"d":[...]}
+    func loadDevices() {
+        guard let base = activeServer else { return }
+        Task {
+            let r = await PXVRNetwork.shared.call("um", params: [("a", "j")], baseURL: base)
+            await MainActor.run {
+                if let arr = r?["d"] as? [[String: Any]] {
+                    self.devices = arr
+                    self.append("[um/a=j] 设备 \(arr.count) 台")
+                } else if let r = r {
+                    self.append("[um/a=j] 响应: \(r)")
+                }
+            }
+        }
+    }
+
+    /// 下线其他设备：原版 /um {a:"o"}
+    func offlineOtherDevices() {
+        guard let base = activeServer else { return }
+        Task {
+            let r = await PXVRNetwork.shared.call("um", params: [("a", "o")], baseURL: base)
+            await MainActor.run {
+                self.append("[um/a=o] 响应: \(String(describing: r))")
+            }
+            self.loadDevices()
         }
     }
 

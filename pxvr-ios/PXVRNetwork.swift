@@ -126,10 +126,13 @@ final class PXVRNetwork {
             return nil
         }
         let p = PXVRDeviceProfile.shared
-        let payload: [String: Any] = [
+        // 服务端下发的登记号要原样回传（原版 ws0.t("rd")）
+        let rd = UserDefaults.standard.string(forKey: "pxvr.rd") ?? "0"
+        let stats = PXVRNodeStats.shared
+        var payload: [String: Any] = [
             "k": key,                       // 设备 key（/xk 下发的 "id"），服务端依此关联会话
-            "r": "0",                       // rd 本地配置，默认 "0"
-            "t": 0,                         // Android 端：首次运行（未建立信任）为 0
+            "r": rd,                        // 上次服务端下发的 rd
+            "t": stats.traffic,             // 累计流量，原版 ws0.u()
             "c": "wd",
             "v": p.appVersion,              // 对应 Android v 字段（原始 APK 上报 20260606）
             "s": p.sdkInt,                  // 对应 Build.VERSION.SDK_INT
@@ -137,16 +140,41 @@ final class PXVRNetwork {
             "d": self.deviceFlag,          // 对应 dm 标记；干净 iOS 设备为 0，与未 root 的 Android 一致
             "wv": p.webViewVersion          // iOS 上无 net.ngee.wv 伴生 APK，固定 ""
         ]
+        // 节点质量上报（原版 ws0.b() / ws0.c()），服务端据此调度路线
+        if let f = stats.reportF() { payload["f"] = f }
+        if let sr = stats.reportSR() { payload["sr"] = sr }
         guard let resp = await callAPI(baseURL: baseURL, path: PXVRConstants.pathDeviceAuth, payload: payload) else {
             return nil
         }
         // 实证联调：把服务器明文响应打出来，看它是否接受 / 起疑 / 吊销。
         PXVRLogger.info("[xc] 服务器响应: \(resp)")
+        if let rd = resp["rd"] as? String, !rd.isEmpty {
+            UserDefaults.standard.set(rd, forKey: "pxvr.rd")
+            PXVRLogger.info("[xc] 记录登记号 rd=\(rd)")
+        }
         if let krv = resp["krv"] as? Int, krv == 200 {
             PXVRLogger.warning("/xc 收到吊销指令 krv=200，清库并退出")
             Self.clearLocalData()
             exit(0)
         }
+        return resp
+    }
+
+    /// 通用接口调用：`/<path>?k=<key>&<params>`，体为空。
+    /// 对应原版 ws0.p0(name, params, cb)。
+    func call(_ path: String, params: [(String, String)], baseURL: URL) async -> [String: Any]? {
+        guard let key = deviceKey, !key.isEmpty else {
+            PXVRLogger.warning("\(path) 需要设备 key")
+            return nil
+        }
+        var items: [URLQueryItem] = [URLQueryItem(name: "k", value: key)]
+        for (n, v) in params { items.append(URLQueryItem(name: n, value: v)) }
+        var comps = URLComponents()
+        comps.path = "/" + path
+        comps.queryItems = items
+        let q = comps.string ?? "/\(path)"
+        let resp = await callAPI(baseURL: baseURL, path: q, payload: [:])
+        PXVRLogger.info("/\(path) 响应: \(String(describing: resp))")
         return resp
     }
 

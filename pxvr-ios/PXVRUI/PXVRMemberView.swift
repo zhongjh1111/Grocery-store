@@ -24,7 +24,9 @@ struct PXVRMemberView: View {
     @State private var showNote = true
     @State private var showLogin = false
 
-    private let expireText = "—"
+    private var expireText: String {
+        controller.premiumExpire.isEmpty ? "—" : controller.premiumExpire
+    }
     private let green = Color(hex: 0x2E9E4F)
     private let buttonBlue = Color(hex: 0x1E88E5)
 
@@ -45,6 +47,11 @@ struct PXVRMemberView: View {
                             .padding(.horizontal, 16)
                             .padding(.top, 8)
                     }
+                    if controller.isLoggedIn {
+                        deviceCard
+                            .padding(.horizontal, 14)
+                            .padding(.top, 12)
+                    }
                     noteCard
                         .padding(.horizontal, 14)
                         .padding(.top, 10)
@@ -54,6 +61,12 @@ struct PXVRMemberView: View {
         }
         .sheet(isPresented: $showLogin) {
             PXVRLoginView(controller: controller)
+        }
+        .onAppear {
+            if controller.isLoggedIn {
+                controller.loadPremium()
+                controller.loadDevices()
+            }
         }
     }
 
@@ -174,6 +187,75 @@ struct PXVRMemberView: View {
         .cornerRadius(3)
         .padding(.horizontal, 16)
         .padding(.top, 8)
+    }
+
+    private var deviceCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("设备管理")
+                    .font(.system(size: 16))
+                    .foregroundColor(.black)
+                Spacer()
+                Button("下线其他设备") { controller.offlineOtherDevices() }
+                    .font(.system(size: 12))
+                    .foregroundColor(buttonBlue)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+
+            ForEach(Array(controller.devices.enumerated()), id: \.offset) { _, dev in
+                Divider().padding(.horizontal, 16)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(deviceName(dev)).font(.system(size: 14)).foregroundColor(.black)
+                        Spacer()
+                        if isOnline(dev) {
+                            Text("● 当前在线").font(.system(size: 11)).foregroundColor(green)
+                        }
+                    }
+                    Text(deviceTime(dev)).font(.system(size: 11)).foregroundColor(.secondary)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+            }
+
+            if controller.devices.isEmpty {
+                Text("暂无数据")
+                    .font(.system(size: 12)).foregroundColor(.secondary)
+                    .padding(.horizontal, 16).padding(.bottom, 12)
+            }
+        }
+        .background(Color.white)
+        .cornerRadius(6)
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color(hex: 0xE8E8E8), lineWidth: 0.8))
+    }
+
+    private func deviceName(_ d: [String: Any]) -> String {
+        for k in ["n", "name", "m", "model", "dn"] {
+            if let v = d[k] as? String, !v.isEmpty { return v }
+        }
+        return "未知设备"
+    }
+
+    private func deviceTime(_ d: [String: Any]) -> String {
+        for k in ["t", "time", "ctime", "d"] {
+            if let v = d[k] as? String, !v.isEmpty { return v }
+            if let v = d[k] as? Int {
+                let date = Date(timeIntervalSince1970: TimeInterval(v > 1_000_000_000 ? v : v / 1000))
+                let f = DateFormatter()
+                f.dateFormat = "yyyy年M月d日 HH:mm:ss"
+                return f.string(from: date)
+            }
+        }
+        return ""
+    }
+
+    private func isOnline(_ d: [String: Any]) -> Bool {
+        for k in ["c", "cur", "online", "ol"] {
+            if let v = d[k] as? Int { return v == 1 }
+            if let v = d[k] as? Bool { return v }
+        }
+        return false
     }
 
     private var noteCard: some View {
