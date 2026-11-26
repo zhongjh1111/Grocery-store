@@ -19,7 +19,7 @@ import WebKit
 
 final class PXVRURLProtocol: URLProtocol {
 
-    private var task: Task<Void, Never>?
+    private var worker: Task<Void, Never>?
 
     // MARK: - 注册
 
@@ -116,7 +116,7 @@ final class PXVRURLProtocol: URLProtocol {
         let body = Self.bodyData(of: request)
         let port = UInt16(url.port ?? (url.scheme == "https" ? 443 : 80))
 
-        task = Task { [weak self] in
+        worker = Task { [weak self] in
             guard let self = self else { return }
             let route = PXVRProxyServer.shared.router.chain(for: host).first
             let targetHost = route?.host ?? host
@@ -157,8 +157,8 @@ final class PXVRURLProtocol: URLProtocol {
     }
 
     override func stopLoading() {
-        task?.cancel()
-        task = nil
+        worker?.cancel()
+        worker = nil
     }
 
     // MARK: - 工具
