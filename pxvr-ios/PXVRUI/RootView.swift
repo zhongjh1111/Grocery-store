@@ -65,6 +65,7 @@ enum PXVRSheet: Identifiable {
     case logs
     case page(PXVRPageKind)
     case notices
+    case mitm
 
     var id: String {
         switch self {
@@ -72,6 +73,7 @@ enum PXVRSheet: Identifiable {
         case .logs:   return "logs"
         case .page(let p): return "page-" + p.id
         case .notices:    return "notices"
+        case .mitm:       return "mitm"
         }
     }
 }
@@ -143,6 +145,7 @@ struct RootView: View {
             case .logs:        PXVRLogView(controller: controller)
             case .page(let k): pageView(k)
             case .notices:     PXVRNoticesView(controller: controller)
+            case .mitm:        PXVRMITMSettingsView(controller: controller)
             }
         }
         .alert("输入地址", isPresented: $showAddressInput) {
@@ -205,6 +208,7 @@ struct RootView: View {
             desktopMode: $desktopMode,
             dataSync: $dataSync,
             restoreLast: $restoreLast,
+            onMITM: { closeMenu(); activeSheet = .mitm },
             onBlockSettings: { closeMenu(); activeSheet = .page(.block) },
             onMoreOptions: { closeMenu() },
             onFAQ: { closeMenu() },

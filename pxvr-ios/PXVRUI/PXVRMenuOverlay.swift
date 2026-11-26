@@ -38,6 +38,7 @@ struct PXVRMenuOverlay: View {
     @Binding var desktopMode: Bool
     @Binding var dataSync: Bool
     @Binding var restoreLast: Bool
+    let onMITM: () -> Void
     let onBlockSettings: () -> Void
     let onMoreOptions: () -> Void
     let onFAQ: () -> Void
@@ -121,6 +122,7 @@ struct PXVRMenuOverlay: View {
             checkRow("桌面版页面", $desktopMode)
             checkRow("启用数据同步", $dataSync)
             checkRow("启动时恢复上次浏览页面", $restoreLast)
+            plainRow("本地代理设置", onMITM)
             plainRow("屏蔽设置…", onBlockSettings)
             arrowRow("更多选项..", onMoreOptions)
             plainRow("常见问题解答", onFAQ)

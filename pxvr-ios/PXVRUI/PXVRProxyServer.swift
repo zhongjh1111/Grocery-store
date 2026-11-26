@@ -25,7 +25,8 @@ final class PXVRProxyServer {
     private var listener: NWListener?
     private(set) var port: UInt16 = 0
     private let queue = DispatchQueue(label: "pxvr.proxy")
-    private let router = PXVRRouter()
+    /// 供 MITM 代理查询路由
+    let router = PXVRRouter()
 
     /// 用 /xc 下发的配置重建路由表
     func loadConfig(_ config: [String: Any]) {
