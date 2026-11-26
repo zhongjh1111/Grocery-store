@@ -22,7 +22,7 @@ struct PXVRMITMSettingsView: View {
                     Toggle("进程内拦截（推荐）", isOn: $intercept)
                         .onChange(of: intercept) { on in
                             PXVRURLProtocol.enabled = on
-                            if on { PXVRURLProtocol.install() }
+                            if on { controller.enableHookAndReload() }
                             let state = on ? "已开启" : "已关闭"
                             controller.append("[hook] 拦截模式 \(state)，重启 App 后完全生效")
                         }

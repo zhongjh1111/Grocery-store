@@ -97,6 +97,8 @@ final class PXVRURLProtocol: URLProtocol {
             return
         }
 
+        PXVRLogger.info("[hook] 拦截到 \\(request.url?.absoluteString.prefix(60) ?? "")")
+
         let method = request.httpMethod ?? "GET"
         var path = url.path.isEmpty ? "/" : url.path
         if let q = url.query { path += "?" + q }

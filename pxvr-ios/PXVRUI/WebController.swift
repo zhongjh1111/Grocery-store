@@ -65,12 +65,12 @@ final class WebController: NSObject, ObservableObject {
     override init() {
         super.init()
 
+        // 无条件探测一次私有 API 状态（不依赖开关），日志里能看到结论
+        PXVRURLProtocol.probe()
+
         // 方案二（进程内拦截）：注册时机必须在 WKWebView 创建之前。
-        // 目前已知 iOS 16 上 registerSchemeForCustomProtocol 可能失效，
-        // 保留代码作为备选，同时把探测结果打到日志里，便于判断是否可用。
         if PXVRURLProtocol.enabled {
             PXVRURLProtocol.install()
-            PXVRURLProtocol.probe()
         }
 
         let cfg = WKWebViewConfiguration()
@@ -135,6 +135,15 @@ final class WebController: NSObject, ObservableObject {
             _ = PXVRIdentity.shared.identity
         }
         openThroughProxy(url, attempt: 0)
+    }
+
+    /// 打开拦截开关后调用：注册 + 重新加载当前页，不需要重启 App
+    func enableHookAndReload() {
+        PXVRURLProtocol.install()
+        PXVRURLProtocol.probe()
+        let target = lastRequested.isEmpty ? "https://www.pixiv.net/" : lastRequested
+        append("[hook] 已注册，重新加载 \(target)")
+        load(target)
     }
 
     /// 代理是异步就绪的，第一次调用可能还没拿到端口，稍等重试
