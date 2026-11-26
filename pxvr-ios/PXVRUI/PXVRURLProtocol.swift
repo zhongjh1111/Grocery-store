@@ -120,17 +120,31 @@ final class PXVRURLProtocol: URLProtocol {
 
         worker = Task { [weak self] in
             guard let self = self else { return }
-            let route = PXVRProxyServer.shared.router.chain(for: host).first
-            let targetHost = route?.host ?? host
-            let targetPort = UInt16(route?.port ?? Int(port))
-            if let n = route?.headerName, let v = route?.headerValue {
-                headers[n] = v
+            let chain = PXVRProxyServer.shared.router.chain(for: host)
+            var resp: PXVRRawHTTP.Response?
+            var lastError: Error?
+
+            // 沿路由链逐个试：第一个节点常年挂起，不能只打一个
+            for route in chain {
+                var h = headers
+                if let n = route.headerName, let v = route.headerValue { h[n] = v }
+                do {
+                    let r = try await PXVRRawHTTP.request(
+                        host: route.host, port: UInt16(route.port),
+                        method: method, path: path, headers: h, body: body)
+                    PXVRLogger.info("[hook] \(host) → \(route.address) \(r.status) \(r.body.count)B")
+                    resp = r
+                    break
+                } catch {
+                    PXVRLogger.warning("[hook] \(host) 经 \(route.address) 失败：\(error.localizedDescription)")
+                    lastError = error
+                    // 记进路由表冷却，下次这条链就不再先打它
+                    PXVRProxyServer.shared.router.markFailed(route.address)
+                }
             }
 
             do {
-                let resp = try await PXVRRawHTTP.request(
-                    host: targetHost, port: targetPort, method: method,
-                    path: path, headers: headers, body: body)
+                guard let resp = resp else { throw lastError ?? URLError(.cannotConnectToHost) }
 
                 await self.syncCookies(resp.headers, url: url)
 
