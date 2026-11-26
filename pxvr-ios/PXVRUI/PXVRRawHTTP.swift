@@ -21,7 +21,8 @@ enum PXVRRawHTTP {
 
     struct Response {
         let status: Int
-        let headers: [String: String]   // 键统一小写
+        let headers: [String: String]        // 键小写，重复键只保留最后一条
+        let headerList: [(String, String)]   // 原始顺序与重复项（Set-Cookie 必需）
         let body: Data
     }
 
@@ -128,11 +129,14 @@ enum PXVRRawHTTP {
 
         lines.removeFirst()
         var headers: [String: String] = [:]
+        var headerList: [(String, String)] = []
         for line in lines {
             guard let colon = line.firstIndex(of: ":") else { continue }
-            let k = line[..<colon].trimmingCharacters(in: .whitespaces).lowercased()
+            let rawKey = line[..<colon].trimmingCharacters(in: .whitespaces)
             let v = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+            let k = rawKey.lowercased()
             headers[k] = v
+            headerList.append((rawKey, v))
         }
 
         // 分块编码
@@ -142,7 +146,7 @@ enum PXVRRawHTTP {
             if bodyData.count > n { bodyData = bodyData.prefix(n) }
         }
 
-        return Response(status: status, headers: headers, body: Data(bodyData))
+        return Response(status: status, headers: headers, headerList: headerList, body: Data(bodyData))
     }
 
     /// 解 Transfer-Encoding: chunked

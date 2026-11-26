@@ -23,11 +23,14 @@ final class PXVRURLProtocol: URLProtocol {
 
     // MARK: - 注册
 
-    /// 是否启用（默认关，验证通过再打开）
+    /// 是否启用：与设置页的通道选择保持一致（唯一真源是 pxvr.channel）
     static var enabled: Bool {
-        get { (UserDefaults.standard.object(forKey: "pxvr.intercept") as? Bool) ?? false }
-        set { UserDefaults.standard.set(newValue, forKey: "pxvr.intercept") }
+        get { PXVRChannel.current == .hook }
+        set { PXVRChannel.current = newValue ? .hook : .rewrite }
     }
+
+    /// 注册是否真的执行成功（供设置页显示）
+    private(set) static var installed = false
 
     static func install() {
         URLProtocol.registerClass(PXVRURLProtocol.self)
@@ -45,6 +48,7 @@ final class PXVRURLProtocol: URLProtocol {
         }
         _ = cls.perform(sel, with: "http" as NSString)
         _ = cls.perform(sel, with: "https" as NSString)
+        installed = true
         PXVRLogger.info("[hook] 已注册 scheme 拦截")
     }
 
@@ -115,18 +119,25 @@ final class PXVRURLProtocol: URLProtocol {
         headers["Connection"] = "close"
         if headers["Referer"] == nil { headers["Referer"] = "https://www.pixiv.net/" }
 
+        // WebKit 不会给自定义 scheme 的请求带 Cookie，必须自己补
+        let cookieHeader = awaitCookieHeader(url: url)
         let body = Self.bodyData(of: request)
         let port = UInt16(url.port ?? (url.scheme == "https" ? 443 : 80))
 
         worker = Task { [weak self] in
             guard let self = self else { return }
+            // WebKit 不会给自定义 scheme 的请求带 Cookie，必须自己补
+            var hdrs0 = headers
+            let ck = await self.cookieHeader(for: url)
+            if !ck.isEmpty { hdrs0["Cookie"] = ck }
+
             let chain = PXVRProxyServer.shared.router.chain(for: host)
             var resp: PXVRRawHTTP.Response?
             var lastError: Error?
 
             // 沿路由链逐个试：第一个节点常年挂起，不能只打一个
             for route in chain {
-                var h = headers
+                var h = hdrs0
                 if let n = route.headerName, let v = route.headerValue { h[n] = v }
                 do {
                     let r = try await PXVRRawHTTP.request(
@@ -146,12 +157,14 @@ final class PXVRURLProtocol: URLProtocol {
             do {
                 guard let resp = resp else { throw lastError ?? URLError(.cannotConnectToHost) }
 
-                await self.syncCookies(resp.headers, url: url)
+                await self.syncCookies(resp.headerList, url: url)
 
+                // 保留 Content-Encoding：body 是按原样拿到的，删了头会导致乱码
                 var hdrs: [String: String] = [:]
-                for (k, v) in resp.headers {
+                for (k, v) in resp.headerList {
                     let lk = k.lowercased()
-                    if lk == "content-encoding" || lk == "transfer-encoding" { continue }
+                    if lk == "transfer-encoding" || lk == "connection"
+                        || lk == "content-length" || lk == "set-cookie" { continue }
                     hdrs[k] = v
                 }
                 hdrs["Content-Length"] = String(resp.body.count)
@@ -197,20 +210,50 @@ final class PXVRURLProtocol: URLProtocol {
     }
 
     /// 把响应的 Set-Cookie 写进 WebKit，否则登录态存不住
-    private func syncCookies(_ headers: [String: String], url: URL) async {
-        guard let raw = headers["set-cookie"] else { return }
+    /// 从 WebKit 的 cookie 存储里取出该 URL 适用的 cookie，拼成请求头
+    private func cookieHeader(for url: URL) async -> String {
         let store = WKWebsiteDataStore.default().httpCookieStore
-        for pair in raw.components(separatedBy: ",") {
-            let first = pair.components(separatedBy: ";").first ?? ""
+        let all: [HTTPCookie] = await withCheckedContinuation { cont in
+            store.getAllCookies { cont.resume(returning: $0) }
+        }
+        let host = url.host?.lowercased() ?? ""
+        let matched = all.filter { c in
+            var d = c.domain.lowercased()
+            if d.hasPrefix(".") { d = String(d.dropFirst()) }
+            return host == d || host.hasSuffix("." + d)
+        }
+        guard !matched.isEmpty else { return "" }
+        return matched.map { $0.name + "=" + $0.value }.joined(separator: "; ")
+    }
+
+    /// 响应里每一条 Set-Cookie 分别写进 WebKit（多值头必须逐条处理）
+    private func syncCookies(_ headers: [(String, String)], url: URL) async {
+        let store = WKWebsiteDataStore.default().httpCookieStore
+        for (k, v) in headers where k.lowercased() == "set-cookie" {
+            let parts = v.components(separatedBy: ";")
+            guard let first = parts.first else { continue }
             let kv = first.split(separator: "=", maxSplits: 1)
             guard kv.count == 2 else { continue }
-            let name = kv[0].trimmingCharacters(in: .whitespaces)
-            let value = kv[1].trimmingCharacters(in: .whitespaces)
+
             var props: [HTTPCookiePropertyKey: Any] = [
-                .name: name, .value: value,
+                .name: kv[0].trimmingCharacters(in: .whitespaces),
+                .value: kv[1].trimmingCharacters(in: .whitespaces),
             ]
-            if let domain = headers["__domain"] ?? url.host { props[.domain] = domain }
-            props[.path] = "/"
+            var domain = url.host ?? ""
+            for attr in parts.dropFirst() {
+                let seg = attr.trimmingCharacters(in: .whitespaces)
+                let low = seg.lowercased()
+                if low.hasPrefix("domain=") {
+                    domain = String(seg.dropFirst(7)).trimmingCharacters(in: .whitespaces)
+                } else if low.hasPrefix("path=") {
+                    props[.path] = String(seg.dropFirst(5))
+                } else if low == "secure" {
+                    props[.secure] = "TRUE"
+                }
+            }
+            if !domain.isEmpty { props[.domain] = domain }
+            if props[.path] == nil { props[.path] = "/" }
+
             if let c = HTTPCookie(properties: props) {
                 await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
                     store.setCookie(c) { cont.resume() }

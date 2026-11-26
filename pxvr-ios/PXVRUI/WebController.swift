@@ -137,6 +137,17 @@ final class WebController: NSObject, ObservableObject {
         openThroughProxy(url, attempt: 0)
     }
 
+    /// 设置页显示用
+    var hookStateText: String {
+        if !PXVRURLProtocol.enabled { return "未开启" }
+        return PXVRURLProtocol.installed ? "已开启，注册成功" : "已开启，但注册未执行"
+    }
+
+    /// 回到首页（切换通道后用）
+    func reloadHome() {
+        load("https://www.pixiv.net/")
+    }
+
     /// 打开拦截开关后调用：注册 + 重新加载当前页，不需要重启 App
     func enableHookAndReload() {
         PXVRURLProtocol.install()
