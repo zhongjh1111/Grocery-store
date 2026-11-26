@@ -187,10 +187,10 @@ final class PXVRMITMServer {
     private func serveTLS(fd: Int32, host: String, port: UInt16) {
         guard let identity = PXVRIdentity.shared.identity else { return }
         guard let ctx = SSLCreateContext(nil, .serverSide, .streamType) else { return }
-        defer { SSLDisposeContext(ctx) }
+        defer { SSLClose(ctx); CFRelease(ctx as CFTypeRef) }
 
         let connRef = UnsafeMutableRawPointer(bitPattern: Int(fd)) ?? UnsafeMutableRawPointer(bitPattern: 1)!
-        SSLSetConnection(ctx, connRef)
+        SSLSetConnection(ctx, UnsafeRawPointer(connRef))
         SSLSetIOFuncs(ctx, sslReadCallback, sslWriteCallback)
         SSLSetCertificate(ctx, [identity] as CFArray)
         SSLSetProtocolVersionMin(ctx, .tlsProtocol12)
@@ -257,8 +257,8 @@ final class PXVRMITMServer {
         if !alreadyRead.isEmpty { _ = writeAll(fd: up, alreadyRead) }
 
         let group = DispatchGroup()
-        workQueue.async(group: group) { pump(from: fd, to: up) }
-        workQueue.async(group: group) { pump(from: up, to: fd) }
+        workQueue.async(group: group) { self.pump(from: fd, to: up) }
+        workQueue.async(group: group) { self.pump(from: up, to: fd) }
         _ = group.wait(timeout: .now() + 60)
     }
 
@@ -278,7 +278,10 @@ final class PXVRMITMServer {
         let host = header(rawHead, "Host")?
             .split(separator: ":").first.map(String.init) ?? ""
         guard !host.isEmpty else { return }
-        let port: UInt16 = UInt16(header(rawHead, "Host")?.split(separator: ":").last ?? "80") ?? 80
+        let hostField = header(rawHead, "Host") ?? ""
+        let portStr = hostField.split(separator: ":").count > 1
+            ? String(hostField.split(separator: ":").last!) : "80"
+        let port = UInt16(portStr) ?? 80
         guard let resp = PXVRUpstream.shared.send(host: host, port: port, request: rawHead, body: Data()) else { return }
         _ = writeAll(fd: fd, resp)
     }
@@ -326,10 +329,13 @@ final class PXVRMITMServer {
 
     private func sslRead(ctx: SSLContext, count: Int, partial: Bool = false) -> Data? {
         var out = Data()
-        var buf = [UInt8](repeating: 0, count: min(count, 16384))
+        let chunkSize = min(count, 16384)
+        var buf = [UInt8](repeating: 0, count: chunkSize)
         while out.count < count {
             var got = 0
-            let st = SSLRead(ctx, &buf, buf.count, &got)
+            let st = buf.withUnsafeMutableBytes { raw -> OSStatus in
+                SSLRead(ctx, raw.baseAddress!, chunkSize, &got)
+            }
             if got > 0 { out.append(contentsOf: buf[0..<got]) }
             if st == errSSLWouldBlock {
                 if partial && !out.isEmpty { return out }
