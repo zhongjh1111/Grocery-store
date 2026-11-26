@@ -119,14 +119,11 @@ final class PXVRURLProtocol: URLProtocol {
         headers["Connection"] = "close"
         if headers["Referer"] == nil { headers["Referer"] = "https://www.pixiv.net/" }
 
-        // WebKit 不会给自定义 scheme 的请求带 Cookie，必须自己补
-        let cookieHeader = awaitCookieHeader(url: url)
         let body = Self.bodyData(of: request)
         let port = UInt16(url.port ?? (url.scheme == "https" ? 443 : 80))
 
         worker = Task { [weak self] in
             guard let self = self else { return }
-            // WebKit 不会给自定义 scheme 的请求带 Cookie，必须自己补
             var hdrs0 = headers
             let ck = await self.cookieHeader(for: url)
             if !ck.isEmpty { hdrs0["Cookie"] = ck }
