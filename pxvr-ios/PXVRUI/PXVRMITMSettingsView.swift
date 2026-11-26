@@ -12,11 +12,27 @@ struct PXVRMITMSettingsView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var enabled = UserDefaults.standard.bool(forKey: "pxvr.mitm")
+    @State private var intercept = PXVRURLProtocol.enabled
     @State private var caURL: URL?
 
     var body: some View {
         NavigationView {
             List {
+                Section {
+                    Toggle("进程内拦截（推荐）", isOn: $intercept)
+                        .onChange(of: intercept) { on in
+                            PXVRURLProtocol.enabled = on
+                            if on { PXVRURLProtocol.install() }
+                            let state = on ? "已开启" : "已关闭"
+                            controller.append("[hook] 拦截模式 \(state)，重启 App 后完全生效")
+                        }
+                } header: {
+                    Text("方式一：进程内拦截")
+                } footer: {
+                    Text("只影响本 App，不需要装证书、不需要改 Wi-Fi 代理。页面 URL 保持原样。")
+                        .font(.system(size: 12))
+                }
+
                 Section {
                     Toggle("启用本地代理（MITM）", isOn: $enabled)
                         .onChange(of: enabled) { on in
@@ -40,7 +56,7 @@ struct PXVRMITMSettingsView: View {
                         .font(.system(size: 12))
                 }
 
-                Section("第一步：安装根证书") {
+                Section("方式二（备选）：系统代理 —— 需要装证书") {
                     Button("导出 CA 证书") {
                         caURL = Bundle.main.url(forResource: "ca", withExtension: "der")
                         if let u = caURL { PXVRShare.present([u]) }

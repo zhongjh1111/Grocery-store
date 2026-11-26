@@ -65,6 +65,14 @@ final class WebController: NSObject, ObservableObject {
     override init() {
         super.init()
 
+        // 方案二（进程内拦截）：注册时机必须在 WKWebView 创建之前。
+        // 目前已知 iOS 16 上 registerSchemeForCustomProtocol 可能失效，
+        // 保留代码作为备选，同时把探测结果打到日志里，便于判断是否可用。
+        if PXVRURLProtocol.enabled {
+            PXVRURLProtocol.install()
+            PXVRURLProtocol.probe()
+        }
+
         let cfg = WKWebViewConfiguration()
         cfg.allowsInlineMediaPlayback = true
         cfg.mediaTypesRequiringUserActionForPlayback = []
@@ -131,6 +139,12 @@ final class WebController: NSObject, ObservableObject {
 
     /// 代理是异步就绪的，第一次调用可能还没拿到端口，稍等重试
     private func openThroughProxy(_ url: URL, attempt: Int) {
+        // 进程内拦截模式：URL 原样加载，由 PXVRURLProtocol 接管
+        if PXVRURLProtocol.enabled {
+            append("[hook] 拦截模式打开 \(url.absoluteString)")
+            webView.load(URLRequest(url: url))
+            return
+        }
         if let proxyURL = PXVRProxyServer.shared.entryURL(for: url.absoluteString) {
             append("[proxy] 经本地代理打开 \(proxyURL.absoluteString)")
             webView.load(URLRequest(url: proxyURL))
@@ -434,6 +448,12 @@ extension WebController: WKNavigationDelegate {
 
         // 已经是代理地址 → 放行
         if s.hasPrefix("http://127.0.0.1") || s.hasPrefix("https://127.0.0.1") {
+            decisionHandler(.allow)
+            return
+        }
+
+        // 拦截模式下 URL 本来就对，不需要接管，放行即可（否则会 cancel→load 死循环）
+        if PXVRURLProtocol.enabled {
             decisionHandler(.allow)
             return
         }
