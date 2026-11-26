@@ -128,7 +128,7 @@ final class PXVRNetwork {
         let p = PXVRDeviceProfile.shared
         // 服务端下发的登记号要原样回传（原版 ws0.t("rd")）
         let rd = UserDefaults.standard.string(forKey: "pxvr.rd") ?? "0"
-        let reportStatsOn = (UserDefaults.object(forKey: "pxvr.reportStats") as? Bool) ?? true
+        let reportStatsOn = (UserDefaults.standard.object(forKey: "pxvr.reportStats") as? Bool) ?? true
         let stats = PXVRNodeStats.shared
         var payload: [String: Any] = [
             "k": key,                       // 设备 key（/xk 下发的 "id"），服务端依此关联会话
@@ -144,7 +144,7 @@ final class PXVRNetwork {
         // 节点质量上报（原版 ws0.b() / ws0.c()），服务端据此调度路线。
         // 默认关闭：v31 实测怀疑这几个字段触发了服务端的风控（回 krv=200 直接退出）。
         // 调试页可打开验证：UserDefaults 设 pxvr.reportStats = true
-        let reportStats = (UserDefaults.object(forKey: "pxvr.reportStats") as? Bool) ?? true
+        let reportStats = (UserDefaults.standard.object(forKey: "pxvr.reportStats") as? Bool) ?? true
         if reportStats {
             if let f = stats.reportF() { payload["f"] = f }
             if let sr = stats.reportSR() { payload["sr"] = sr }
