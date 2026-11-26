@@ -18,6 +18,8 @@ struct PXVRLoginView: View {
     @ObservedObject var controller: WebController
 
     @State private var email = PXVRKeychain.load().email
+    @State private var confirmReset = false
+    @State private var hint = ""
     @State private var password = PXVRKeychain.load().password
     @State private var isRegister = false
 
@@ -78,13 +80,30 @@ struct PXVRLoginView: View {
                 }
                 .padding(.top, 26)
 
-                Button("忘记密码") { }
+                Button("忘记密码") {
+                    guard !email.isEmpty else { hint = "请先填写邮箱"; return }
+                    hint = ""
+                    confirmReset = true
+                }
                     .font(.system(size: 12))
                     .foregroundColor(Color(hex: 0x333333))
                     .padding(.top, 16)
 
+                if !hint.isEmpty {
+                    Text(hint)
+                        .font(.system(size: 11))
+                        .foregroundColor(.red)
+                        .padding(.top, 6)
+                }
+
                 Spacer().frame(height: 60)
             }
+        }
+        .alert("把登录密码发送到邮箱？", isPresented: $confirmReset) {
+            Button("取消", role: .cancel) {}
+            Button("发送") { controller.sendPassword(to: email); dismiss() }
+        } message: {
+            Text(email)
         }
         .overlay(alignment: .topLeading) {
             Button { dismiss() } label: {

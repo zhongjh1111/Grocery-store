@@ -64,12 +64,14 @@ enum PXVRSheet: Identifiable {
     case member
     case logs
     case page(PXVRPageKind)
+    case notices
 
     var id: String {
         switch self {
         case .member: return "member"
         case .logs:   return "logs"
         case .page(let p): return "page-" + p.id
+        case .notices:    return "notices"
         }
     }
 }
@@ -82,6 +84,7 @@ struct RootView: View {
     @State private var menuLevel: PXVRMenuOverlay.Level?
     @State private var showAddressInput = false
     @State private var activeSheet: PXVRSheet?
+    @State private var hasShownNotices = false
     @State private var nightMode = false
     @State private var desktopMode = false
     @State private var dataSync = true
@@ -128,11 +131,18 @@ struct RootView: View {
                     .padding(.top, 44)
             }
         }
+        .onChange(of: controller.notices.count) { count in
+            if count > 0, !hasShownNotices {
+                hasShownNotices = true
+                activeSheet = .notices
+            }
+        }
         .sheet(item: $activeSheet) { sh in
             switch sh {
             case .member:      PXVRMemberView(controller: controller)
             case .logs:        PXVRLogView(controller: controller)
             case .page(let k): pageView(k)
+            case .notices:     PXVRNoticesView(controller: controller)
             }
         }
         .alert("输入地址", isPresented: $showAddressInput) {

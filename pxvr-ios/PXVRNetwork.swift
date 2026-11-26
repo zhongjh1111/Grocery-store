@@ -128,7 +128,7 @@ final class PXVRNetwork {
         let p = PXVRDeviceProfile.shared
         // 服务端下发的登记号要原样回传（原版 ws0.t("rd")）
         let rd = UserDefaults.standard.string(forKey: "pxvr.rd") ?? "0"
-        let reportStatsOn = UserDefaults.standard.bool(forKey: "pxvr.reportStats")
+        let reportStatsOn = (UserDefaults.object(forKey: "pxvr.reportStats") as? Bool) ?? true
         let stats = PXVRNodeStats.shared
         var payload: [String: Any] = [
             "k": key,                       // 设备 key（/xk 下发的 "id"），服务端依此关联会话
@@ -144,7 +144,7 @@ final class PXVRNetwork {
         // 节点质量上报（原版 ws0.b() / ws0.c()），服务端据此调度路线。
         // 默认关闭：v31 实测怀疑这几个字段触发了服务端的风控（回 krv=200 直接退出）。
         // 调试页可打开验证：UserDefaults 设 pxvr.reportStats = true
-        let reportStats = UserDefaults.standard.bool(forKey: "pxvr.reportStats")
+        let reportStats = (UserDefaults.object(forKey: "pxvr.reportStats") as? Bool) ?? true
         if reportStats {
             if let f = stats.reportF() { payload["f"] = f }
             if let sr = stats.reportSR() { payload["sr"] = sr }
@@ -184,6 +184,41 @@ final class PXVRNetwork {
         let resp = await callAPI(baseURL: baseURL, path: q, payload: [:])
         PXVRLogger.info("/\(path) 响应: \(String(describing: resp))")
         return resp
+    }
+
+    /// 同 `call`，但允许响应是 JSON 数组（/msg 就是数组）
+    func callRaw(_ path: String, params: [(String, String)], baseURL: URL) async -> Any? {
+        guard let key = deviceKey, !key.isEmpty else { return nil }
+        var items: [URLQueryItem] = [URLQueryItem(name: "k", value: key)]
+        for (n, v) in params { items.append(URLQueryItem(name: n, value: v)) }
+        var comps = URLComponents()
+        comps.path = "/" + path
+        comps.queryItems = items
+        let q = comps.string ?? "/\(path)"
+
+        guard let enc = PXVRProtocol.shared.encodeJSON([:]) else { return nil }
+        let body = ("q=" + enc).data(using: .utf8)!
+        var headers: [String: String] = [
+            "Content-Type": "application/x-www-form-urlencoded",
+            "User-Agent": PXVRRequestProfile.userAgent,
+        ]
+        for (k, v) in PXVRRequestProfile.extraHeaders { headers[k] = v }
+
+        do {
+            let data = try await transport.post(baseURL: baseURL, path: q, body: body, headers: headers)
+            guard let raw = String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) else { return nil }
+            if let d = raw.data(using: .utf8),
+               let obj = try? JSONSerialization.jsonObject(with: d) {
+                return obj
+            }
+            if let hex = Self.extractEnvelopeHex(raw),
+               let resp = PXVRProtocol.shared.decodeJSON(hex) { return resp }
+            return nil
+        } catch {
+            PXVRLogger.warning("\(path) 请求失败: \(error)")
+            return nil
+        }
     }
 
     /// 把最近一次 /xc 明文响应写到 Documents，便于退出后排查
@@ -288,12 +323,22 @@ final class PXVRNetwork {
             PXVRLogger.warning("没有可用服务器地址")
             return (nil, nil, nil)
         }
-        for (i, base) in servers.enumerated() {
-            PXVRLogger.info("[\(i + 1)/\(servers.count)] 尝试 \(base.absoluteString)")
+        // 上次成功的服务器排最前，避免每次启动都白撞失败节点
+        var ordered = servers
+        if let cached = UserDefaults.standard.string(forKey: "pxvr.lastServer"),
+           let idx = ordered.firstIndex(where: { $0.absoluteString == cached }), idx > 0 {
+            ordered.remove(at: idx)
+            ordered.insert(servers[idx], at: 0)
+            PXVRLogger.info("[net] 优先使用上次成功的服务器 \(cached)")
+        }
+
+        for (i, base) in ordered.enumerated() {
+            PXVRLogger.info("[\(i + 1)/\(ordered.count)] 尝试 \(base.absoluteString)")
             let r = await handshake(baseURL: base)
-            if r.config != nil {
+            if let cfg = r.config, (cfg["result"] as? String) == "ok" {
                 PXVRLogger.info("服务器可用：\(base.absoluteString)")
-                return (r.page, r.config, base)
+                UserDefaults.standard.set(base.absoluteString, forKey: "pxvr.lastServer")
+                return (r.page, cfg, base)
             }
             PXVRLogger.warning("跳过：\(base.absoluteString)")
         }

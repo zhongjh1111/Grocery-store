@@ -23,6 +23,7 @@ struct PXVRMemberView: View {
     @State private var email = PXVRKeychain.load().email
     @State private var showNote = true
     @State private var showLogin = false
+    @State private var didLoad = false
 
     private var expireText: String {
         controller.premiumExpire.isEmpty ? "—" : controller.premiumExpire
@@ -47,6 +48,14 @@ struct PXVRMemberView: View {
                             .padding(.horizontal, 16)
                             .padding(.top, 8)
                     }
+                    purchasesCard
+                        .padding(.horizontal, 14)
+                        .padding(.top, 12)
+
+                    deviceCard
+                        .padding(.horizontal, 14)
+                        .padding(.top, 12)
+
                     noteCard
                         .padding(.horizontal, 14)
                         .padding(.top, 10)
@@ -56,6 +65,12 @@ struct PXVRMemberView: View {
         }
         .sheet(isPresented: $showLogin) {
             PXVRLoginView(controller: controller)
+        }
+        .onAppear {
+            guard !didLoad, controller.isLoggedIn else { return }
+            didLoad = true
+            controller.loadDevices()
+            controller.loadPurchases()
         }
     }
 
@@ -176,6 +191,137 @@ struct PXVRMemberView: View {
         .cornerRadius(3)
         .padding(.horizontal, 16)
         .padding(.top, 8)
+    }
+
+    // MARK: - 购买记录
+
+    private var purchasesCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("购买记录")
+                    .font(.system(size: 16))
+                    .foregroundColor(.black)
+                Spacer()
+                Text("\(controller.purchases.count) 笔")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+
+            if controller.purchases.isEmpty {
+                Text(controller.isLoggedIn ? "暂无记录" : "请先登录")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 14)
+            } else {
+                ForEach(Array(controller.purchases.enumerated()), id: \.offset) { _, item in
+                    Divider().padding(.horizontal, 16)
+                    HStack {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(txTitle(item)).font(.system(size: 13))
+                            Text(txTime(item)).font(.system(size: 11)).foregroundColor(.secondary)
+                        }
+                        Spacer()
+                        Text(txState(item))
+                            .font(.system(size: 11))
+                            .foregroundColor(txState(item) == "已支付" ? green : .secondary)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 9)
+                }
+            }
+        }
+        .background(Color.white)
+        .cornerRadius(6)
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color(hex: 0xE8E8E8), lineWidth: 0.8))
+    }
+
+    private func txTitle(_ d: [String: Any]) -> String {
+        if let add = d["tadd"] as? Int, add != 0 {
+            return add > 0 ? "活动赠送 \(add / 86400) 天" : "扣减 \((-add) / 86400) 天"
+        }
+        if let sec = d["membership_seconds"] as? Int, sec > 0 {
+            return "\(sec / 86400) 天会员"
+        }
+        return "会员订单"
+    }
+
+    private func txTime(_ d: [String: Any]) -> String {
+        guard let pt = d["pt"] as? Int, pt > 946_684_800 else { return "" }
+        let f = DateFormatter()
+        f.dateFormat = "yyyy年M月d日 HH:mm"
+        return f.string(from: Date(timeIntervalSince1970: TimeInterval(pt)))
+    }
+
+    private func txState(_ d: [String: Any]) -> String {
+        switch d["stat"] as? Int {
+        case 1: return "已支付"
+        case 2: return "已退款"
+        default: return "处理中"
+        }
+    }
+
+    // MARK: - 设备管理
+
+    private var deviceCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("设备管理").font(.system(size: 16)).foregroundColor(.black)
+                Spacer()
+                Button("刷新") { controller.loadDevices() }
+                    .font(.system(size: 12)).foregroundColor(buttonBlue)
+            }
+            .padding(.horizontal, 16).padding(.vertical, 14)
+
+            if controller.devices.isEmpty {
+                Text(controller.isLoggedIn ? "暂无设备" : "请先登录")
+                    .font(.system(size: 12)).foregroundColor(.secondary)
+                    .padding(.horizontal, 16).padding(.bottom, 14)
+            } else {
+                ForEach(Array(controller.devices.enumerated()), id: \.offset) { idx, dev in
+                    Divider().padding(.horizontal, 16)
+                    HStack {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(deviceName(dev)).font(.system(size: 13))
+                            Text(deviceTime(dev)).font(.system(size: 11)).foregroundColor(.secondary)
+                        }
+                        Spacer()
+                        Button("操作") { controller.operateDevice(idx) }
+                            .font(.system(size: 11))
+                            .foregroundColor(buttonBlue)
+                    }
+                    .padding(.horizontal, 16).padding(.vertical, 9)
+                }
+            }
+
+            Text("可同时在线设备数以服务端为准")
+                .font(.system(size: 10)).foregroundColor(.secondary)
+                .padding(.horizontal, 16).padding(.vertical, 10)
+        }
+        .background(Color.white)
+        .cornerRadius(6)
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color(hex: 0xE8E8E8), lineWidth: 0.8))
+    }
+
+    private func deviceName(_ d: [String: Any]) -> String {
+        for k in ["n", "name", "m", "model", "dn", "t"] {
+            if let v = d[k] as? String, !v.isEmpty, v != "重要说明" { return v }
+        }
+        return "未知设备"
+    }
+
+    private func deviceTime(_ d: [String: Any]) -> String {
+        for k in ["t", "time", "ctime", "pt", "d"] {
+            if let v = d[k] as? Int {
+                let sec = v > 1_000_000_000 ? v : v / 1000
+                guard sec > 946_684_800, sec < 4_102_444_800 else { continue }
+                let f = DateFormatter(); f.dateFormat = "yyyy年M月d日 HH:mm"
+                return f.string(from: Date(timeIntervalSince1970: TimeInterval(sec)))
+            }
+        }
+        return ""
     }
 
     private var noteCard: some View {

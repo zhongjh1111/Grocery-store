@@ -286,3 +286,58 @@ private func empty(_ text: String) -> some View {
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
 }
+
+// MARK: - 公告（/msg）
+
+struct PXVRNoticesView: View {
+    @ObservedObject var controller: WebController
+
+    var body: some View {
+        PageShell(title: "公告") {
+            if controller.notices.isEmpty {
+                empty("暂无公告")
+            } else {
+                List {
+                    ForEach(Array(controller.notices.enumerated()), id: \.offset) { _, item in
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(title(item))
+                                .font(.system(size: 15))
+                            Text(contentText(item))
+                                .font(.system(size: 13))
+                                .foregroundColor(.secondary)
+                            Text(time(item))
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary.opacity(0.7))
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+                .listStyle(.plain)
+            }
+        }
+    }
+
+    private func title(_ d: [String: Any]) -> String {
+        for k in ["t", "title", "n"] {
+            if let v = d[k] as? String, !v.isEmpty { return v }
+        }
+        return "公告"
+    }
+
+    private func contentText(_ d: [String: Any]) -> String {
+        for k in ["c", "content", "m", "msg", "d"] {
+            if let v = d[k] as? String, !v.isEmpty { return v }
+        }
+        return ""
+    }
+
+    private func time(_ d: [String: Any]) -> String {
+        for k in ["pt", "t", "time", "ctime"] {
+            if let v = d[k] as? Int, v > 946_684_800 {
+                let f = DateFormatter(); f.dateFormat = "yyyy年M月d日 HH:mm"
+                return f.string(from: Date(timeIntervalSince1970: TimeInterval(v)))
+            }
+        }
+        return ""
+    }
+}
