@@ -187,7 +187,7 @@ final class PXVRMITMServer {
     private func serveTLS(fd: Int32, host: String, port: UInt16) {
         guard let identity = PXVRIdentity.shared.identity else { return }
         guard let ctx = SSLCreateContext(nil, .serverSide, .streamType) else { return }
-        defer { SSLClose(ctx); CFRelease(ctx as CFTypeRef) }
+        defer { SSLClose(ctx) }   // ARC 会释放 SSLContext
 
         let connRef = UnsafeMutableRawPointer(bitPattern: Int(fd)) ?? UnsafeMutableRawPointer(bitPattern: 1)!
         SSLSetConnection(ctx, UnsafeRawPointer(connRef))
