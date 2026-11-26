@@ -17,17 +17,34 @@ struct PXVRLogView: View {
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 2) {
-                        ForEach(controller.logs) { line in
-                            Text(line.text)
-                                .textSelection(.enabled)
-                                .font(.system(size: 11, design: .monospaced))
-                                .foregroundColor(.primary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 2) {
+                            ForEach(controller.logs) { line in
+                                Text(line.text)
+                                    .textSelection(.enabled)
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundColor(.primary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .id(line.id)
+                            }
+                            // 锚点：滚到这里等于滚到底
+                            Color.clear.frame(height: 1).id("bottom")
+                        }
+                        .padding(12)
+                    }
+                    .onAppear {
+                        // 打开就停在最新一行
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                            proxy.scrollTo("bottom", anchor: .bottom)
                         }
                     }
-                    .padding(12)
+                    .onChange(of: controller.logs.count) { _ in
+                        // 输出跟随
+                        withAnimation(.easeOut(duration: 0.12)) {
+                            proxy.scrollTo("bottom", anchor: .bottom)
+                        }
+                    }
                 }
             }
             .navigationTitle("日志")

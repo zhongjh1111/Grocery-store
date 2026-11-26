@@ -118,6 +118,14 @@ final class WebController: NSObject, ObservableObject {
         // 一律走本地代理：iOS 无法像 Android 那样劫持 WebView 代理，
         // 只能把目标 URL 编码进路径。
         PXVRProxyServer.shared.start()
+
+        // 上次开过就随启动拉起，省得每次手动点
+        if UserDefaults.standard.bool(forKey: "pxvr.mitm") {
+            let ok = PXVRMITMServer.shared.start()
+            append(ok ? "[mitm] 随启动开启 127.0.0.1:\(PXVRMITMServer.shared.port)"
+                      : "[mitm] 随启动开启失败（端口被占用？）")
+            _ = PXVRIdentity.shared.identity
+        }
         openThroughProxy(url, attempt: 0)
     }
 
@@ -201,9 +209,12 @@ final class WebController: NSObject, ObservableObject {
         Task {
             let r = await PXVRNetwork.shared.call("um", params: [("a", "o")], baseURL: base)
             await MainActor.run {
-                if let arr = r?["d"] as? [[String: Any]] {
+                if let arr = r?["l"] as? [[String: Any]] {
                     self.devices = arr
-                    self.append("[device] \(arr.count) 台：\(arr.first.map { "\($0)" } ?? "")")
+                    self.append("[device] \(arr.count) 台，在线 \(r?["o"] ?? "-")/\(r?["m"] ?? "-")")
+                } else if let arr = r?["d"] as? [[String: Any]] {
+                    self.devices = arr
+                    self.append("[device] \(arr.count) 台（d 字段）")
                 } else {
                     self.append("[device] 响应: \(String(describing: r))")
                 }

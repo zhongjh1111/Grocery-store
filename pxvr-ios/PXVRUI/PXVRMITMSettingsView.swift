@@ -31,7 +31,7 @@ struct PXVRMITMSettingsView: View {
                             }
                         }
                     if PXVRMITMServer.shared.running {
-                        Text("代理地址：127.0.0.1:\(PXVRMITMServer.shared.port)")
+                        Text("代理地址：127.0.0.1:\(PXVRMITMServer.shared.port == 0 ? 8899 : PXVRMITMServer.shared.port)")
                             .font(.system(size: 13, design: .monospaced))
                             .foregroundColor(.secondary)
                     }
@@ -51,7 +51,7 @@ struct PXVRMITMSettingsView: View {
                 }
 
                 Section("第二步：设置系统代理") {
-                    Text("设置 → 无线局域网 → 当前 Wi-Fi → 配置代理 → 手动\n服务器 127.0.0.1，端口 \(PXVRMITMServer.shared.port)")
+                    Text("设置 → 无线局域网 → 当前 Wi-Fi → 配置代理 → 手动\n服务器 127.0.0.1，端口 \(PXVRMITMServer.shared.port == 0 ? 8899 : PXVRMITMServer.shared.port)")
                         .font(.system(size: 13, design: .monospaced))
                 }
 

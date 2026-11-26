@@ -306,14 +306,14 @@ struct PXVRMemberView: View {
     }
 
     private func deviceName(_ d: [String: Any]) -> String {
-        for k in ["n", "name", "m", "model", "dn", "t"] {
+        for k in ["dm", "n", "name", "model", "dn"] {
             if let v = d[k] as? String, !v.isEmpty, v != "重要说明" { return v }
         }
         return "未知设备"
     }
 
     private func deviceTime(_ d: [String: Any]) -> String {
-        for k in ["t", "time", "ctime", "pt", "d"] {
+        for k in ["ts", "t", "time", "ctime", "pt"] {
             if let v = d[k] as? Int {
                 let sec = v > 1_000_000_000 ? v : v / 1000
                 guard sec > 946_684_800, sec < 4_102_444_800 else { continue }

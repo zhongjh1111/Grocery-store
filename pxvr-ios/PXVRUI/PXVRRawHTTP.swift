@@ -51,6 +51,12 @@ enum PXVRRawHTTP {
         let queue = DispatchQueue(label: "pxvr.rawhttp")
         var raw = Data()
 
+        // 看门狗：节点可能接受连接却永不返回（实测 38.59.245.72 会这样），
+        // 没有超时整个页面就卡死在等数据上。到点直接取消连接，交给上一层换节点。
+        let watchdog = DispatchWorkItem { conn.cancel() }
+        queue.asyncAfter(deadline: .now() + 12, execute: watchdog)
+        defer { watchdog.cancel() }
+
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             var finished = false
             func finish(_ err: Error?) {
